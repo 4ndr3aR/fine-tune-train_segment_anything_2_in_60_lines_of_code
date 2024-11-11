@@ -73,9 +73,9 @@ def collate_fn(data):
 data_dir = "/mnt/raid1/dataset/LabPicsV1/"
 batch_size = 3
 train_dataset = LabPicsDataset(data_dir, split="Train")
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
-val_dataset = LabPicsDataset(data_dir, split="Test")
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
+train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
+val_dataset   = LabPicsDataset(data_dir, split="Test")
+val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True, collate_fn=collate_fn)
 
 # Load model
 
@@ -105,10 +105,15 @@ def validate(predictor, val_loader):
     predictor.model.eval()
     with torch.no_grad():
         for image, mask, input_point in val_loader:
-            image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
+            #image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
             input_point = torch.tensor(np.array(input_point)).cuda().float()
 
-            predictor.set_image(image)
+            print(f'---------------- {type(image) = } {type(mask) = } {type(input_point) = }')
+            print(f'{type(image) = } - {len(image) = }')
+
+            print('asdf')
+            predictor.set_image_batch(image)
+            print('qwer')
             mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
             sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
 
@@ -143,6 +148,10 @@ def validate(predictor, val_loader):
     return total_loss / count, total_iou / count
 
 
+val_loss, val_iou = validate(predictor, val_loader)
+print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+
+
 # Training loop
 best_loss = float("inf")
 for epoch in range(100):  # Example: 100 epochs
@@ -150,8 +159,8 @@ for epoch in range(100):  # Example: 100 epochs
         with torch.cuda.amp.autocast():							# cast to mix precision
             # ... (training code remains largely the same, but use data from the loader)
 
-            print(f'{type(image) = } {type(mask) = } {type(input_point) = }')
-            print(f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
+            #print(f'{type(image) = } {type(mask) = } {type(input_point) = }')
+            #print(f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
             input_point = torch.tensor(np.array(input_point)).cuda().float()
             input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
 
