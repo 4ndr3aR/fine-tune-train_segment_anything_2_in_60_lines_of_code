@@ -5,7 +5,10 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import numpy as np
 import torch
+
+import pdb
 import cv2
+
 from torch.utils.data import Dataset, DataLoader
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
@@ -57,25 +60,52 @@ class LabPicsDataset(Dataset):
 
 #def collate_fn(data: List[Tuple[torch.Tensor, torch.Tensor]]):
 def collate_fn(data):
-    print(f'{type(data)} {len(data)}')
-    print(f'{type(data[0])} {len(data[0])}')
-    print(f'{type(data[1])} {len(data[1])}')
-    print(f'{type(data[2])} {len(data[2])}')
+    print(f'collate_fn() 1. - {type(data)    = } {len(data)    = }')
+    print(f'collate_fn() 2. - {type(data[0]) = } {len(data[0]) = }')
+    print(f'collate_fn() 3. - {type(data[1]) = } {len(data[1]) = }')
+    print(f'collate_fn() 4. - {type(data[2]) = } {len(data[2]) = }')
     imgs, masks, points = zip(*data)
-    print(f'{type(imgs) = } {len(imgs) = }')
-    print(f'{type(masks) = } {len(masks) = }')
-    print(f'{type(points) = } {len(points) = }')
+    print(f'collate_fn() 5. - {type(imgs)    = } {len(imgs)    = }')
+    print(f'collate_fn() 6. - {type(masks)   = } {len(masks)   = }')
+    print(f'collate_fn() 7. - {type(points)  = } {len(points)  = }')
     return list(imgs), list(masks), list(points)
     #return torch.stack(imgs), torch.stack(masks), torch.stack(points)
+
+
+# Set number of threads globally
+NUM_WORKERS = 1
+torch.set_num_threads(NUM_WORKERS)
+_breakpoints = {}
+
+def reset_breakpoints(disabled=[]):
+    global _breakpoints
+    _breakpoints = dict((x, False) for x in disabled)
+
+def set_breakpoint(tag, condition=True):
+    if tag not in _breakpoints:
+        _breakpoints[tag] = True
+        if condition:
+            pdb.set_trace()
+    else:
+        if _breakpoints[tag] and condition:
+            pdb.set_trace()
+
+# Use with:
+# set_breakpoint('mycode0')
+# set_breakpoint('mycode1', x == 4)
+
+
+
+
 
 
 # Data Loaders
 data_dir = "/mnt/raid1/dataset/LabPicsV1/"
 batch_size = 3
 train_dataset = LabPicsDataset(data_dir, split="Train")
-train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
+train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
 val_dataset   = LabPicsDataset(data_dir, split="Test")
-val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True, collate_fn=collate_fn)
+val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
 
 # Load model
 
@@ -108,27 +138,50 @@ def validate(predictor, val_loader):
             #image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
             input_point = torch.tensor(np.array(input_point)).cuda().float()
 
-            print(f'---------------- {type(image) = } {type(mask) = } {type(input_point) = }')
-            print(f'{type(image) = } - {len(image) = }')
+            print(f'validate() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+            print(f'validate() 2. - {type(image)    = } - {len(image)     = }')
+            print(f'validate() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+            print(f'validate() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
-            print('asdf')
+###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+##########            predictor.set_image_batch(image)				# apply SAM image encoder to the image
+##########            # predictor.get_image_embedding()
+##########            # prompt encoding
+##########
+##########            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+##########            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
+##########
+##########            # mask decoder
+##########
+##########            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
+##########            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
+##########            print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+##########            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
+###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+
+
             predictor.set_image_batch(image)
-            print('qwer')
-            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
+            # predictor.get_image_embedding()
+            # prompt encoding
+            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(point_coords=input_point, point_labels=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
             sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
 
+            # mask decoder
 
-            high_res_features = [feat_level[-1] for feat_level in predictor._features["high_res_feats"]]
+            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
             low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"],
                                                                              image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
                                                                              sparse_prompt_embeddings=sparse_embeddings,
                                                                              dense_prompt_embeddings=dense_embeddings,
                                                                              multimask_output=True,
                                                                              repeat_image=False,
-                                                                            high_res_features=high_res_features)
+                                                                             high_res_features=high_res_features)
 
 
-            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[:, 0]
+            print(f'validate() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }', flush=True)
+            #set_breakpoint('validate0')
+            #prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[:, 0]
+            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[-1]
 
 
             gt_mask = torch.tensor(np.array(mask).astype(np.float32)).cuda()
@@ -148,8 +201,52 @@ def validate(predictor, val_loader):
     return total_loss / count, total_iou / count
 
 
-val_loss, val_iou = validate(predictor, val_loader)
-print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+#val_loss, val_iou = validate(predictor, val_loader)
+#print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+
+
+def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
+	print(f'sam2_predict()() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+	print(f'sam2_predict()() 2. - {type(image)    = } - {len(image)     = }')
+	print(f'sam2_predict()() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+	print(f'sam2_predict()() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+
+	#train() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
+	#train() 2. - type(image)    = <class 'list'> - len(image)     = 3
+	#train() 3. - type(image[0]) = <class 'numpy.ndarray'> - image[0].shape = (1024, 1024, 3) - image[0].dtype = dtype('uint8')
+	#train() 4. - type(mask[0])  = <class 'numpy.ndarray'> - mask[0].shape  = (1024, 1024) - mask[0].dtype = dtype('uint8')
+	#train() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+
+	#validate() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
+	#validate() 2. - type(image)    = <class 'list'> - len(image)     = 3
+	#validate() 3. - type(image[0]) = <class 'numpy.ndarray'> - image[0].shape = (1024, 1024, 3) - image[0].dtype = dtype('uint8')
+	#validate() 4. - type(mask[0])  = <class 'numpy.ndarray'> - mask[0].shape  = (1024, 1024) - mask[0].dtype = dtype('uint8')
+	#validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+
+	predictor.set_image_batch(image)				# apply SAM image encoder to the image
+	# predictor.get_image_embedding()
+	# prompt encoding
+
+	mask_input, unnorm_coords, labels, unnorm_box	= predictor._prep_prompts(input_point, input_label, box=box, mask_logits=mask_logits, normalize_coords=normalize_coords)
+	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
+
+	# mask decoder
+
+	high_res_features				= [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
+	low_res_masks, prd_scores, _, _			= predictor.model.sam_mask_decoder(
+								image_embeddings=predictor._features["image_embed"],
+								image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
+								sparse_prompt_embeddings=sparse_embeddings,
+								dense_prompt_embeddings=dense_embeddings,
+								multimask_output=True,
+								repeat_image=False,
+								high_res_features=high_res_features,)
+
+	print(f'sam2_predict() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+	# Upscale the masks to the original image resolution
+	prd_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
+
+	return prd_masks, prd_scores
 
 
 # Training loop
@@ -174,23 +271,26 @@ for epoch in range(100):  # Example: 100 epochs
                 if mask.shape[0]==0:
                     continue							# ignore empty batches
 
-            predictor.set_image_batch(image)				# apply SAM image encoder to the image
-            # predictor.get_image_embedding()
-            # prompt encoding
+            ### predictor.set_image_batch(image)				# apply SAM image encoder to the image
+            ### # predictor.get_image_embedding()
+            ### # prompt encoding
 
-            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
+            ### mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+            ### sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
 
-            # mask decoder
+            ### # mask decoder
 
-            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
-            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
+            ### high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
+            ### low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
+            ### print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+            ### prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
 
+
+            prd_masks, prd_scores, _, _ = sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
             # Segmentaion Loss caclulation
 
             gt_mask  = torch.tensor(np.array(mask).astype(np.float32)).cuda()
-            prd_mask = torch.sigmoid(prd_masks[:, 0])# Turn logit map to probability map
+            prd_mask = torch.sigmoid(prd_masks[:, 0])		# Turn logit map to probability map
             seg_loss = (-gt_mask * torch.log(prd_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - prd_mask) + 0.00001)).mean() # cross entropy loss
 
             # Score loss calculation (intersection over union) IOU
