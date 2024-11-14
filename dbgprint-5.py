@@ -18,6 +18,7 @@ class LogLevel(Enum):
 	ERROR	= 6
 	FATAL	= 7
 
+# Loose global variables for loglevels
 trace	= LogLevel.TRACE
 verbose	= LogLevel.VERBOSE
 debug	= LogLevel.DEBUG
@@ -75,6 +76,12 @@ def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
     """
     Enhanced debug print function with color-coded output, subsystem filtering, and flexible formatting.
     """
+
+    # Ensure the subsystem and loglevel are valid
+    if not isinstance(subsystem, Subsystem):
+        raise ValueError(f"Invalid subsystem: {subsystem}")
+    if not isinstance(loglevel, LogLevel):
+        raise ValueError(f"Invalid loglevel: {loglevel}")
 
     if subsystem not in enabled_subsystems or loglevel.value < enabled_subsystems[subsystem].value:
         return  # Suppress output if subsystem/loglevel is disabled
