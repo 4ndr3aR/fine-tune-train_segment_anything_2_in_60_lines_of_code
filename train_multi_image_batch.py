@@ -16,9 +16,9 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from dbgprint import dbgprint
 from dbgprint import *
 
-pid = os.getpid()
-dbgprint(threading, LogLevel.INFO, f"Hello world! This is pid: {pid}")
-sys.exit(0)
+#pid = os.getpid()
+#dbgprint(test, LogLevel.INFO, f"Hello world! This is pid: {pid}")
+#sys.exit(0)
 
 # Dataset class
 class LabPicsDataset(Dataset):
@@ -62,25 +62,25 @@ class LabPicsDataset(Dataset):
             mask = np.zeros_like(mat_map, dtype=np.uint8)
             point = [[0, 0]]  # Provide a default point
 
-        #print(f'{type(Img)} {type(mask)} {type(point)}')
+        dbgprint(dataloader, LogLevel.TRACE, f'{type(Img)} {type(mask)} {type(point)}')
         return Img, mask, point
 
 #def collate_fn(data: List[Tuple[torch.Tensor, torch.Tensor]]):
 def collate_fn(data):
-    print(f'collate_fn() 1. - {type(data)    = } {len(data)    = }')
-    print(f'collate_fn() 2. - {type(data[0]) = } {len(data[0]) = }')
-    print(f'collate_fn() 3. - {type(data[1]) = } {len(data[1]) = }')
-    print(f'collate_fn() 4. - {type(data[2]) = } {len(data[2]) = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 1. - {type(data)    = } {len(data)    = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 2. - {type(data[0]) = } {len(data[0]) = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 3. - {type(data[1]) = } {len(data[1]) = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 4. - {type(data[2]) = } {len(data[2]) = }')
     imgs, masks, points = zip(*data)
-    print(f'collate_fn() 5. - {type(imgs)    = } {len(imgs)    = }')
-    print(f'collate_fn() 6. - {type(masks)   = } {len(masks)   = }')
-    print(f'collate_fn() 7. - {type(points)  = } {len(points)  = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 5. - {type(imgs)    = } {len(imgs)    = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 6. - {type(masks)   = } {len(masks)   = }')
+    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 7. - {type(points)  = } {len(points)  = }')
     return list(imgs), list(masks), list(points)
     #return torch.stack(imgs), torch.stack(masks), torch.stack(points)
 
 
 # Set number of threads globally
-NUM_WORKERS = 1
+NUM_WORKERS = 16
 torch.set_num_threads(NUM_WORKERS)
 _breakpoints = {}
 
@@ -108,7 +108,7 @@ def set_breakpoint(tag, condition=True):
 
 # Data Loaders
 data_dir = "/mnt/raid1/dataset/LabPicsV1/"
-batch_size = 3
+batch_size = 63
 train_dataset = LabPicsDataset(data_dir, split="Train")
 train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
 val_dataset   = LabPicsDataset(data_dir, split="Test")
@@ -136,10 +136,10 @@ best_loss = float("inf")
 
 
 def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
-	print(f'sam2_predict() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-	print(f'sam2_predict() 2. - {type(image)    = } - {len(image)     = }')
-	print(f'sam2_predict() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-	print(f'sam2_predict() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+	dbgprint(predict, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+	dbgprint(predict, LogLevel.TRACE, f'2. - {type(image)    = } - {len(image)     = }')
+	dbgprint(predict, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+	dbgprint(predict, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
 	#train() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
 	#train() 2. - type(image)    = <class 'list'> - len(image)     = 3
@@ -172,7 +172,7 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 								repeat_image=False,
 								high_res_features=high_res_features,)
 
-	print(f'sam2_predict() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+	dbgprint(predict, LogLevel.TRACE, f'5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
 	# Upscale the masks to the original image resolution
 	prd_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
 
@@ -191,6 +191,7 @@ def calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05):
 	iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
 	score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
 	loss = seg_loss + score_loss*score_loss_weight						# mix losses
+
 	return loss, seg_loss, score_loss, iou
 
 
@@ -206,10 +207,10 @@ def validate(predictor, val_loader):
             input_point = torch.tensor(np.array(input_point)).cuda().float()
             input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
 
-            print(f'validate() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-            print(f'validate() 2. - {type(image)    = } - {len(image)     = }')
-            print(f'validate() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-            print(f'validate() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {type(image)    = } - {len(image)     = }')
+            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
             ###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
             ##########            predictor.set_image_batch(image)				# apply SAM image encoder to the image
@@ -268,23 +269,22 @@ def validate(predictor, val_loader):
             total_iou += iou.mean().item()
             count += 1
 
-    return total_loss / count, total_iou / count
+            dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Loss: {total_loss / count:.4f}, IOU: {total_iou / count:.4f}')
 
-
-val_loss, val_iou = validate(predictor, val_loader)
-print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
-
+    return total_loss / count, total_iou / count, count
 
 
 # Training loop
 best_loss = float("inf")
+best_iou  = float("-inf")
+
 for epoch in range(100):  # Example: 100 epochs
     for itr, (image, mask, input_point) in enumerate(train_loader):
         with torch.cuda.amp.autocast():							# cast to mix precision
             # ... (training code remains largely the same, but use data from the loader)
 
-            #print(f'{type(image) = } {type(mask) = } {type(input_point) = }')
-            #print(f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
+            dbgprint(train, LogLevel.TRACE, f'{type(image) = } {type(mask) = } {type(input_point) = }')
+            dbgprint(train, LogLevel.TRACE, f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
             input_point = torch.tensor(np.array(input_point)).cuda().float()
             input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
 
@@ -327,17 +327,24 @@ for epoch in range(100):  # Example: 100 epochs
             if itr == 0:
                 mean_iou = 0
             mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
-            print(f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
+            dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
             if itr % 10 == 0:
                 if loss < best_loss:
                     # save the model
                     best_loss = loss
-                    model_str = f"{sam2_checkpoint.replace('.pt','')}-step-{itr}-acc-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+                    model_str = f"{sam2_checkpoint.replace('.pt','')}-training-epoch-{epoch}-step-{itr}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+                    dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
                     torch.save(predictor.model.state_dict(), model_str);
 
-    val_loss, val_iou = validate(predictor, val_loader)
-    print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+    #val_loss, val_iou = validate(predictor, val_loader)
+    #print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+    val_loss, val_iou, num_batches = validate(predictor, val_loader)
+    dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {val_loss:.4f}, IOU: {val_iou:.4f}')
+    #dbgprint(main, LogLevel.TRACE, f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
 
-    if val_loss < best_loss:
+    if val_loss < best_loss or val_iou > best_iou:
         best_loss = val_loss
-        # ... (save model)
+        best_iou  = val_iou
+        model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+        dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
+        torch.save(predictor.model.state_dict(), model_str);

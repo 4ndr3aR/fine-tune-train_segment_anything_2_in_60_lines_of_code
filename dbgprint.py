@@ -35,6 +35,10 @@ class Subsystem(Enum):
 	TRAIN		= 5
 	VALIDATE	= 6
 	TEST		= 7
+	DATALOADER	= 8
+	PREDICT		= 9
+	MAIN		= 10
+	WIDEST____	= 256			# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)
 
 # Loose global variables for subsystems (for convenient keyword access)
 threading	= Subsystem.THREADING
@@ -44,6 +48,9 @@ network		= Subsystem.NETWORK
 train		= Subsystem.TRAIN
 validate	= Subsystem.VALIDATE
 test		= Subsystem.TEST
+dataloader	= Subsystem.DATALOADER
+predict		= Subsystem.PREDICT
+main		= Subsystem.MAIN
 
 class Color(Enum):
 	DARK_GRAY	= 240
@@ -60,7 +67,6 @@ class Color(Enum):
 	LIGHT_RED	= 203
 	BRIGHT_WHITE	= 15	# Already in your list as WHITE, we'll keep it as an alias
 	SKY_BLUE	= 39	# Example of a nice color
-	DEEP_ORANGE	= 208	# Another example
 	LAVENDER	= 183	# And another
 	PINK		= 218	# Pastel pink
 	BABY_BLUE	= 159	# Pastel blue
@@ -85,7 +91,11 @@ subsystem_colors = {
 	Subsystem.QUEUES:	Color.LIGHT_YELLOW,
 	Subsystem.NETWORK:	Color.LIGHT_MAGENTA,
 	Subsystem.TRAIN:	Color.LIGHT_RED,
-	Subsystem.VALIDATE:	Color.LIGHT_RED,
+	Subsystem.VALIDATE:	Color.ORANGE,
+	Subsystem.TEST:		Color.SKY_BLUE,
+	Subsystem.DATALOADER:	Color.PINK,
+	Subsystem.PREDICT:	Color.BABY_BLUE,
+	Subsystem.MAIN:		Color.MINT,
 }
 
 
@@ -135,11 +145,18 @@ subsystem_colors = {
 
 # Enabled subsystems and their minimum log levels
 enabled_subsystems = {
-    Subsystem.THREADING:	LogLevel.DEBUG,
-    Subsystem.QUEUES:		LogLevel.WARNING,
-    Subsystem.NETWORK:		LogLevel.ERROR,
-    Subsystem.SHAREDMEM:	LogLevel.TRACE,
-    # Add more subsystems and their minimum log levels here
+	Subsystem.THREADING:	LogLevel.DEBUG,
+	Subsystem.QUEUES:	LogLevel.WARNING,
+	Subsystem.NETWORK:	LogLevel.ERROR,
+	Subsystem.SHAREDMEM:	LogLevel.TRACE,
+	Subsystem.TRAIN:	LogLevel.INFO,
+	Subsystem.VALIDATE:	LogLevel.INFO,
+	Subsystem.TEST:		LogLevel.TRACE,
+	Subsystem.DATALOADER:	LogLevel.WARNING,
+	Subsystem.PREDICT:	LogLevel.INFO,
+	Subsystem.MAIN:		LogLevel.TRACE,
+	Subsystem.WIDEST____:	LogLevel.FATAL,		# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)
+	# Add more subsystems and their minimum log levels here
 }
 
 def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
@@ -163,8 +180,8 @@ def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
     lcolor = loglevel_colors[loglevel]
     scolor = subsystem_colors[subsystem]
     #print(f'{lcolor = }, {scolor = }')
-    padded_loglevel  = colorize(loglevel.name.ljust(len(LogLevel.WARNING.name)),	ansi=lcolor.value)
-    padded_subsystem = colorize(subsystem.name.ljust(len(Subsystem.SHAREDMEM.name)),	ansi=scolor.value)
+    padded_loglevel  = colorize(loglevel.name.ljust (len(Subsystem.WARNING.name)),	ansi=lcolor.value)
+    padded_subsystem = colorize(subsystem.name.ljust(len(Subsystem.WIDEST____.name)),	ansi=scolor.value)
 
     #Construct the output string
     #output_str = f"[{timestamp}][{lcolor}{padded_loglevel}{Style.RESET_ALL}] - [{scolor}{padded_subsystem}{Style.RESET_ALL}] "
