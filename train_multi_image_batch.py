@@ -13,6 +13,13 @@ from torch.utils.data import Dataset, DataLoader
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
+from dbgprint import dbgprint
+from dbgprint import *
+
+pid = os.getpid()
+dbgprint(threading, LogLevel.INFO, f"Hello world! This is pid: {pid}")
+sys.exit(0)
+
 # Dataset class
 class LabPicsDataset(Dataset):
     def __init__(self, data_dir, split="Train"):
