@@ -83,6 +83,7 @@ def collate_fn(data):
 NUM_WORKERS = 16
 torch.set_num_threads(NUM_WORKERS)
 _breakpoints = {}
+NUM_EPOCHS  = 1000
 
 def reset_breakpoints(disabled=[]):
     global _breakpoints
@@ -199,6 +200,8 @@ def calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05):
 def validate(predictor, val_loader):
     total_loss = 0
     total_iou = 0
+    total_seg_loss = 0
+    total_score_loss = 0
     count = 0
     predictor.model.eval()
     with torch.no_grad():
@@ -267,18 +270,26 @@ def validate(predictor, val_loader):
 
             total_loss += loss.item()
             total_iou += iou.mean().item()
+            total_score_loss += score_loss.item()
+            total_seg_loss += seg_loss.item()
             count += 1
 
-            dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Loss: {total_loss / count:.4f}, IOU: {total_iou / count:.4f}')
+            avg_val_loss = total_loss / count
+            avg_val_iou = total_iou / count
+            avg_val_score_loss = total_score_loss / count
+            avg_val_seg_loss = total_seg_loss / count
 
-    return total_loss / count, total_iou / count, count
+            dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
+
+    return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, count
+    #return total_loss / count, total_iou / count, count, total_score_loss / count, total_seg_loss / count
 
 
 # Training loop
 best_loss = float("inf")
 best_iou  = float("-inf")
 
-for epoch in range(100):  # Example: 100 epochs
+for epoch in range(NUM_EPOCHS):  # Example: 100 epochs
     for itr, (image, mask, input_point) in enumerate(train_loader):
         with torch.cuda.amp.autocast():							# cast to mix precision
             # ... (training code remains largely the same, but use data from the loader)
@@ -338,13 +349,14 @@ for epoch in range(100):  # Example: 100 epochs
 
     #val_loss, val_iou = validate(predictor, val_loader)
     #print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
-    val_loss, val_iou, num_batches = validate(predictor, val_loader)
-    dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {val_loss:.4f}, IOU: {val_iou:.4f}')
+    #val_loss, val_iou, num_batches = validate(predictor, val_loader)
+    avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
+    dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
     #dbgprint(main, LogLevel.TRACE, f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
 
-    if val_loss < best_loss or val_iou > best_iou:
-        best_loss = val_loss
-        best_iou  = val_iou
-        model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
-        dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
+    if avg_val_loss < best_loss or avg_val_iou > best_iou:
+        best_loss = avg_val_loss
+        best_iou  = avg_val_iou
+        model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{avg_val_iou:.2f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
+        dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
         torch.save(predictor.model.state_dict(), model_str);
