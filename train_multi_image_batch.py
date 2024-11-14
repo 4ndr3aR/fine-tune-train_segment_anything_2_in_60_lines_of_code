@@ -127,89 +127,12 @@ scaler    = torch.cuda.amp.GradScaler() # mixed precision
 
 best_loss = float("inf")
 
-# Validation function
-def validate(predictor, val_loader):
-    total_loss = 0
-    total_iou = 0
-    count = 0
-    predictor.model.eval()
-    with torch.no_grad():
-        for image, mask, input_point in val_loader:
-            #image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
-            input_point = torch.tensor(np.array(input_point)).cuda().float()
-
-            print(f'validate() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-            print(f'validate() 2. - {type(image)    = } - {len(image)     = }')
-            print(f'validate() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-            print(f'validate() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
-
-###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-##########            predictor.set_image_batch(image)				# apply SAM image encoder to the image
-##########            # predictor.get_image_embedding()
-##########            # prompt encoding
-##########
-##########            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-##########            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
-##########
-##########            # mask decoder
-##########
-##########            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-##########            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
-##########            print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
-##########            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
-###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-
-
-            predictor.set_image_batch(image)
-            # predictor.get_image_embedding()
-            # prompt encoding
-            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(point_coords=input_point, point_labels=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
-            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
-
-            # mask decoder
-
-            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"],
-                                                                             image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
-                                                                             sparse_prompt_embeddings=sparse_embeddings,
-                                                                             dense_prompt_embeddings=dense_embeddings,
-                                                                             multimask_output=True,
-                                                                             repeat_image=False,
-                                                                             high_res_features=high_res_features)
-
-
-            print(f'validate() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }', flush=True)
-            #set_breakpoint('validate0')
-            #prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[:, 0]
-            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[-1]
-
-
-            gt_mask = torch.tensor(np.array(mask).astype(np.float32)).cuda()
-            prd_mask = torch.sigmoid(prd_masks)
-
-            seg_loss = (-gt_mask * torch.log(prd_mask + 1e-7) - (1 - gt_mask) * torch.log((1 - prd_mask) + 1e-7)).mean()
-
-            inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
-            iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
-            score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
-            loss = seg_loss + score_loss * 0.05
-
-            total_loss += loss.item()
-            total_iou += iou.mean().item()
-            count += 1
-
-    return total_loss / count, total_iou / count
-
-
-#val_loss, val_iou = validate(predictor, val_loader)
-#print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
-
 
 def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
-	print(f'sam2_predict()() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-	print(f'sam2_predict()() 2. - {type(image)    = } - {len(image)     = }')
-	print(f'sam2_predict()() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-	print(f'sam2_predict()() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+	print(f'sam2_predict() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+	print(f'sam2_predict() 2. - {type(image)    = } - {len(image)     = }')
+	print(f'sam2_predict() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+	print(f'sam2_predict() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
 	#train() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
 	#train() 2. - type(image)    = <class 'list'> - len(image)     = 3
@@ -248,6 +171,103 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 
 	return prd_masks, prd_scores
 
+def calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05):
+	# Segmentaion Loss caclulation
+
+	gt_mask  = torch.tensor(np.array(mask).astype(np.float32)).cuda()
+	prd_mask = torch.sigmoid(prd_masks[:, 0])						# Turn logit map to probability map
+	seg_loss = (-gt_mask * torch.log(prd_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - prd_mask) + 0.00001)).mean() # cross entropy loss
+
+	# Score loss calculation (intersection over union) IOU
+
+	inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
+	iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
+	score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
+	loss = seg_loss + score_loss*score_loss_weight						# mix losses
+	return loss, seg_loss, score_loss, iou
+
+
+# Validation function
+def validate(predictor, val_loader):
+    total_loss = 0
+    total_iou = 0
+    count = 0
+    predictor.model.eval()
+    with torch.no_grad():
+        for image, mask, input_point in val_loader:
+            #image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
+            input_point = torch.tensor(np.array(input_point)).cuda().float()
+            input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
+
+            print(f'validate() 1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+            print(f'validate() 2. - {type(image)    = } - {len(image)     = }')
+            print(f'validate() 3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+            print(f'validate() 4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+
+            ###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+            ##########            predictor.set_image_batch(image)				# apply SAM image encoder to the image
+            ##########            # predictor.get_image_embedding()
+            ##########            # prompt encoding
+            ##########
+            ##########            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+            ##########            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
+            ##########
+            ##########            # mask decoder
+            ##########
+            ##########            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
+            ##########            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
+            ##########            print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+            ##########            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
+            ###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
+            
+            
+            #####            predictor.set_image_batch(image)
+            #####            # predictor.get_image_embedding()
+            #####            # prompt encoding
+            #####            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(point_coords=input_point, point_labels=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
+            #####            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
+            #####
+            #####            # mask decoder
+            #####
+            #####            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
+            #####            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"],
+            #####                                                                             image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
+            #####                                                                             sparse_prompt_embeddings=sparse_embeddings,
+            #####                                                                             dense_prompt_embeddings=dense_embeddings,
+            #####                                                                             multimask_output=True,
+            #####                                                                             repeat_image=False,
+            #####                                                                             high_res_features=high_res_features)
+            #####
+            #####
+            #####            print(f'validate() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }', flush=True)
+            #####            #set_breakpoint('validate0')
+            #####            #prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[:, 0]
+            #####            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[-1]
+
+            prd_masks, prd_scores		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+            loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
+
+            #####            gt_mask = torch.tensor(np.array(mask).astype(np.float32)).cuda()
+            #####            prd_mask = torch.sigmoid(prd_masks)
+
+            #####            seg_loss = (-gt_mask * torch.log(prd_mask + 1e-7) - (1 - gt_mask) * torch.log((1 - prd_mask) + 1e-7)).mean()
+
+            #####            inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
+            #####            iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
+            #####            score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
+            #####            loss = seg_loss + score_loss * 0.05
+
+            total_loss += loss.item()
+            total_iou += iou.mean().item()
+            count += 1
+
+    return total_loss / count, total_iou / count
+
+
+val_loss, val_iou = validate(predictor, val_loader)
+print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
+
+
 
 # Training loop
 best_loss = float("inf")
@@ -285,20 +305,8 @@ for epoch in range(100):  # Example: 100 epochs
             ### print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
             ### prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
 
-
-            prd_masks, prd_scores, _, _ = sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            # Segmentaion Loss caclulation
-
-            gt_mask  = torch.tensor(np.array(mask).astype(np.float32)).cuda()
-            prd_mask = torch.sigmoid(prd_masks[:, 0])		# Turn logit map to probability map
-            seg_loss = (-gt_mask * torch.log(prd_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - prd_mask) + 0.00001)).mean() # cross entropy loss
-
-            # Score loss calculation (intersection over union) IOU
-
-            inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
-            iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
-            score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
-            loss = seg_loss + score_loss*0.05  # mix losses
+            prd_masks, prd_scores 		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+            loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
 
             # apply back propogation
 
