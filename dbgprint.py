@@ -180,7 +180,7 @@ def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
     lcolor = loglevel_colors[loglevel]
     scolor = subsystem_colors[subsystem]
     #print(f'{lcolor = }, {scolor = }')
-    padded_loglevel  = colorize(loglevel.name.ljust (len(Subsystem.WARNING.name)),	ansi=lcolor.value)
+    padded_loglevel  = colorize(loglevel.name.ljust (len(LogLevel.WARNING.name)),	ansi=lcolor.value)
     padded_subsystem = colorize(subsystem.name.ljust(len(Subsystem.WIDEST____.name)),	ansi=scolor.value)
 
     #Construct the output string
