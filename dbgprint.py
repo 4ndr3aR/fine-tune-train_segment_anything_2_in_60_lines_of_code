@@ -152,7 +152,7 @@ enabled_subsystems = {
 	Subsystem.TRAIN:	LogLevel.INFO,
 	Subsystem.VALIDATE:	LogLevel.INFO,
 	Subsystem.TEST:		LogLevel.TRACE,
-	Subsystem.DATALOADER:	LogLevel.WARNING,
+	Subsystem.DATALOADER:	LogLevel.INFO,
 	Subsystem.PREDICT:	LogLevel.INFO,
 	Subsystem.MAIN:		LogLevel.TRACE,
 	Subsystem.WIDEST____:	LogLevel.FATAL,		# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)

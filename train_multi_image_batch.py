@@ -10,6 +10,8 @@ import pdb
 import cv2
 
 from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
@@ -20,7 +22,7 @@ from dbgprint import *
 #dbgprint(test, LogLevel.INFO, f"Hello world! This is pid: {pid}")
 #sys.exit(0)
 
-# Dataset class
+# Dataset class for LabPicsV1 dataset
 class LabPicsDataset(Dataset):
     def __init__(self, data_dir, split="Train"):
         self.data_dir = data_dir
@@ -79,6 +81,148 @@ def collate_fn(data):
     #return torch.stack(imgs), torch.stack(masks), torch.stack(points)
 
 
+# Dataset class for SPREAD dataset
+#class SpreadDataset(Dataset):
+#    def __init__(self, data_dir, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+#        self.data_dir = data_dir
+#        self.split = split
+#        
+#        # Collect all data entries
+#        self.data = []
+#        for class_dir in os.listdir(data_dir):
+#            #print(f'Reading directory: {class_dir}')
+#            if not os.path.isdir(os.path.join(data_dir, class_dir)):
+#                continue
+#            rgb_dir = os.path.join(data_dir, class_dir, "rgb")
+#            #print(f'RGB directory: {rgb_dir}')
+#            if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
+#                continue
+#            instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
+#            #print(f'Instance segmentation directory: {instance_dir}')
+#            if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
+#                continue
+#            for name in os.listdir(rgb_dir):
+#                self.data.append({
+#                    "image": os.path.join(rgb_dir, name),
+#                    "annotation": os.path.join(instance_dir, name)
+#                })
+#
+#        dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
+#
+#        # Create splits
+#        train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
+#        train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
+#        
+#        if split == "train":
+#            self.data = train_data
+#        elif split == "val":
+#            self.data = val_data
+#        elif split == "test":
+#            self.data = test_data
+#
+#    def __len__(self):
+#        return len(self.data)
+#
+#    def __getitem__(self, idx):
+#        ent = self.data[idx]
+#        Img = cv2.imread(ent["image"])[..., ::-1]  # Convert BGR to RGB
+#        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
+#
+#        # Resize images and masks to the same resolution
+#        Img = cv2.resize(Img, (960, 540))
+#        ann_map = cv2.resize(ann_map, (960, 540), interpolation=cv2.INTER_NEAREST)
+#
+#        # Process the annotation map
+#        mat_map = ann_map[:, :, 0]
+#        ves_map = ann_map[:, :, 2]
+#        mat_map[mat_map == 0] = ves_map[mat_map == 0] * (mat_map.max() + 1)
+#
+#        inds = np.unique(mat_map)[1:]
+#        if len(inds) > 0:
+#            ind = np.random.choice(inds)
+#            mask = (mat_map == ind).astype(np.uint8)
+#            coords = np.argwhere(mask > 0)
+#            yx = coords[np.random.randint(len(coords))]
+#            point = [[yx[1], yx[0]]]
+#        else:
+#            mask = np.zeros_like(mat_map, dtype=np.uint8)
+#            point = [[0, 0]]  # Provide a default point
+#
+#        return Img, mask, point
+
+class SpreadDataset(Dataset):
+    def __init__(self, data_dir, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+        self.data_dir = data_dir
+        self.split = split
+        
+        # Collect all data entries
+        self.data = []
+        for class_dir in os.listdir(data_dir):
+            dbgprint(dataloader, LogLevel.TRACE, f'Reading directory: {class_dir}')
+            if not os.path.isdir(os.path.join(data_dir, class_dir)):
+                continue
+            rgb_dir = os.path.join(data_dir, class_dir, "rgb")
+            dbgprint(dataloader, LogLevel.TRACE, f'RGB directory: {rgb_dir}')
+            if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
+                continue
+            instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
+            dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {instance_dir}')
+            if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
+                continue
+            for name in os.listdir(rgb_dir):
+                if name.endswith(".png"):
+                    self.data.append({
+                        "image": os.path.join(rgb_dir, name),
+                        "annotation": os.path.join(instance_dir, name)
+                    })
+
+        dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
+
+        # Create splits
+        train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
+        train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
+        
+        if split == "train":
+            self.data = train_data
+        elif split == "val":
+            self.data = val_data
+        elif split == "test":
+            self.data = test_data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        ent = self.data[idx]
+        dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["annotation"]}')
+        Img = cv2.imread(ent["image"])[..., ::-1]  # Convert BGR to RGB
+        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
+
+        # Resize images and masks to the same resolution
+        Img = cv2.resize(Img, (960, 540))
+        ann_map = cv2.resize(ann_map, (960, 540), interpolation=cv2.INTER_NEAREST)
+
+        # Process the annotation map
+        mat_map = ann_map[:, :, 0]
+        ves_map = ann_map[:, :, 2]
+        mat_map[mat_map == 0] = ves_map[mat_map == 0] * (mat_map.max() + 1)
+
+        inds = np.unique(mat_map)[1:]
+        if len(inds) > 0:
+            ind = np.random.choice(inds)
+            mask = (mat_map == ind).astype(np.uint8)
+            coords = np.argwhere(mask > 0)
+            yx = coords[np.random.randint(len(coords))]
+            point = [[yx[1], yx[0]]]
+        else:
+            mask = np.zeros_like(mat_map, dtype=np.uint8)
+            point = [[0, 0]]  # Provide a default point
+
+        return Img, mask, point
+
+
+
+
 # Set number of threads globally
 NUM_WORKERS = 16
 torch.set_num_threads(NUM_WORKERS)
@@ -108,17 +252,40 @@ def set_breakpoint(tag, condition=True):
 
 
 # Data Loaders
-data_dir = "/mnt/raid1/dataset/LabPicsV1/"
 batch_size = 63
-train_dataset = LabPicsDataset(data_dir, split="Train")
-train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
-val_dataset   = LabPicsDataset(data_dir, split="Test")
-val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+if False:
+	data_dir = "/mnt/raid1/dataset/LabPicsV1/"
+
+	train_dataset	= LabPicsDataset(data_dir, split="Train")
+	train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
+	val_dataset	= LabPicsDataset(data_dir, split="Test")
+	val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+else:
+	#train_dataset = SPREADDataset(data_dir, split="Train")
+	#train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
+	#val_dataset   = SPREADDataset(data_dir, split="Test")
+	#val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+	data_dir = "/mnt/raid1/dataset/spread"
+	
+	train_dataset	= SpreadDataset(data_dir, split="train")
+	train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+	
+	val_dataset	= SpreadDataset(data_dir, split="val")
+	val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+	
+	test_dataset	= SpreadDataset(data_dir, split="test")
+	test_loader	= DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
+	
+	dbgprint(dataloader, LogLevel.INFO, f"Train: {len(train_dataset)} - Val: {len(val_dataset)} - Test: {len(test_dataset)}")
 
 # Load model
 
 sam2_checkpoint = "sam2_hiera_small.pt" # path to model weight
 model_cfg = "sam2_hiera_s.yaml" #  model config
+
+sam2_checkpoint = "sam2_hiera_large.pt"
+model_cfg = "sam2_hiera_l.yaml"
+
 sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda") # load model
 predictor = SAM2ImagePredictor(sam2_model)
 
