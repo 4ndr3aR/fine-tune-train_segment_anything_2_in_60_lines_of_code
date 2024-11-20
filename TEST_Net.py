@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # segment image region using  fine tune model
 # See Train.py on how to fine tune/train the model
 import numpy as np
@@ -12,20 +13,24 @@ torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
 # Load image
 
 image_path = r"sample_image.jpg" # path to image
-mask_path = r"sample_mask.png" # path to mask, the mask will define the image region to segment
+mask_path  = r"sample_mask.png" # path to mask, the mask will define the image region to segment
+
+MIN_MAX_SIZE = 0.05
 
 def read_image(image_path, mask_path): # read and resize image and mask
-        img = cv2.imread(image_path)[...,::-1]  # read image as rgb
+        img  = cv2.imread(image_path)[...,::-1]  # read image as rgb
         mask = cv2.imread(mask_path,0) # mask of the region we want to segment
 
         # Resize image to maximum size of 1024
 
         r = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
-        img = cv2.resize(img, (int(img.shape[1] * r), int(img.shape[0] * r)))
+        img  = cv2.resize(img,  (int(img.shape[1]  * r), int(img.shape[0]  * r)))
         mask = cv2.resize(mask, (int(mask.shape[1] * r), int(mask.shape[0] * r)),interpolation=cv2.INTER_NEAREST)
         return img, mask
+
 image,mask = read_image(image_path, mask_path)
 num_samples = 30 # number of points/segment to sample
+
 def get_points(mask,num_points): # Sample points inside the input mask
         points=[]
         for i in range(num_points):
@@ -44,7 +49,7 @@ sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
 
 # Build net and load weights
 predictor = SAM2ImagePredictor(sam2_model)
-predictor.model.load_state_dict(torch.load("model.torch"))
+predictor.model.load_state_dict(torch.load("models-LabPicsV1-bs63-20241115/valid/sam2_hiera_small-validation-epoch-706-iou-0.70-best-loss-0.06-segloss-0.05-scoreloss-0.15.pth"))
 
 # predict mask
 
@@ -65,11 +70,16 @@ shorted_masks = masks[np.argsort(scores[:,0])][::-1].astype(bool)
 seg_map = np.zeros_like(shorted_masks[0],dtype=np.uint8)
 occupancy_mask = np.zeros_like(shorted_masks[0],dtype=bool)
 for i in range(shorted_masks.shape[0]):
+    #ith_shored_mask = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
     mask = shorted_masks[i]
-    if (mask*occupancy_mask).sum()/mask.sum()>0.15: continue
+    occupancy = 1. - (mask*occupancy_mask).sum() / mask.sum()
+    if occupancy < MIN_MAX_SIZE: continue
     mask[occupancy_mask]=0
     seg_map[mask]=i+1
     occupancy_mask[mask]=1
+    cv2.imwrite(f"shorted{i:03}-occupancy-{occupancy:.2}.png",		((mask+1)*30.).astype(np.uint8))
+    cv2.imwrite(f"occ_mask{i:03}-occupancy-{occupancy:.2}.png",		((occupancy_mask+1)*30.).astype(np.uint8))
+    cv2.imwrite(f"segmap{i:03}-occupancy-{occupancy:.2}.png",		seg_map)
 
 # create colored annotation map
 height, width = seg_map.shape
@@ -81,10 +91,12 @@ for id_class in range(1,seg_map.max()+1):
 
 # save and display
 
-cv2.imwrite("annotation.png",rgb_image)
-cv2.imwrite("mix.png",(rgb_image/2+image/2).astype(np.uint8))
+blended = (rgb_image/2+image/2)[...,::-1]  # read image as rgb
 
-cv2.imshow("annotation",rgb_image)
-cv2.imshow("mix",(rgb_image/2+image/2).astype(np.uint8))
-cv2.imshow("image",image)
+cv2.imwrite("annotation.png",	rgb_image)
+cv2.imwrite("blended.png",	blended.astype(np.uint8))
+
+cv2.imshow("annotation",	rgb_image[...,::-1])
+cv2.imshow("blended",		blended.astype(np.uint8))
+cv2.imshow("image",		image[...,::-1])
 cv2.waitKey()
