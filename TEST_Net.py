@@ -65,18 +65,25 @@ def create_model(arch="small", checkpoint="model.pth"):
 	predictor.model.load_state_dict(torch.load(checkpoint))
 	return predictor
 
-def read_image(image_path, mask_path): # read and resize image and mask
-        img  = cv2.imread(image_path)[...,::-1]  # read image as rgb
-        mask = cv2.imread(mask_path,0) # mask of the region we want to segment
+def read_image(image_path, mask_path):					# read and resize image and mask
+	img  = cv2.imread(image_path)[...,::-1]				# read image as rgb
+	#mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)		# mask of the region we want to segment
+	mask = cv2.imread(mask_path)					# mask of the region we want to segment
+	#'''
+	newmask = mask
+	newmask[newmask==0]=64
+	cv2.imshow(f"newmask", newmask)
+	cv2.waitKey()
+	#'''
 
-        # Resize image to maximum size of 1024
+	# Resize image to maximum size of 1024
 
-        r = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
-        img  = cv2.resize(img,  (int(img.shape[1]  * r), int(img.shape[0]  * r)))
-        mask = cv2.resize(mask, (int(mask.shape[1] * r), int(mask.shape[0] * r)),interpolation=cv2.INTER_NEAREST)
-        return img, mask
+	r = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
+	img  = cv2.resize(img,  (int(img.shape[1]  * r), int(img.shape[0]  * r)))
+	mask = cv2.resize(mask, (int(mask.shape[1] * r), int(mask.shape[0] * r)),interpolation=cv2.INTER_NEAREST)
+	return img, mask
 
-def get_points(mask,num_points): # Sample points inside the input mask
+def get_points(mask, num_points): # Sample points inside the input mask
 	points=[]
 	for i in range(num_points):
 		coords = np.argwhere(mask > 0)
@@ -177,9 +184,16 @@ if __name__ == "__main__":
 
 		dbgprint(dataloader, LogLevel.INFO, f'Found {len(image_files)} images and {len(mask_files)} masks')
 
+		#counter=0
 		for imgfn, mskfn in zip(image_files, mask_files):
+			#if counter < 5:
+			#	counter+=1
+			#	continue
 			dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
 			image, mask	= read_image(imgfn, mskfn)
+			cv2.imshow(f"image", image)
+			cv2.imshow(f"mask", mask)
+			cv2.waitKey()
 			dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {image.shape}")
 			dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 			input_points	= get_points(mask, num_samples)	# read image and sample points
