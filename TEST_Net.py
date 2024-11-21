@@ -12,11 +12,16 @@ import exifread
 import torch
 import cv2
 
+import PIL
+from PIL import Image
+
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from dbgprint import dbgprint
 from dbgprint import *
+
+from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_idx
 
 # use bfloat16 for the entire script (memory efficient)
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -66,74 +71,79 @@ def create_model(arch="small", checkpoint="model.pth"):
 	predictor.model.load_state_dict(torch.load(checkpoint))
 	return predictor
 
-'''
-def read_exif(fn):
-	# Read the image file as an EXIF JPEG
-	# Open image file for reading (binary mode)
-	f = open(fn, 'rb')
-
-	# Return Exif tags
-	tags = exifread.process_file(f)
-	dbgprint(dataloader, LogLevel.INFO, f"Image EXIF tags	: {tags}")
-	return tags
-'''
-from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS, IFD
-#from pillow_heif import register_heif_opener    # HEIF support
-#import pillow_avif                              # AVIF support
-
-#register_heif_opener()                          # HEIF support
-
-#def print_exif(fname: str):
 def get_image_mode(fname):
 	img = Image.open(fname)
-	print(type(img))
-	print(img.mode)
-	exif = img.getexif()
-	for (k,v) in img.getexif().items():
-		print(k,v)
-		print('%s = %s' % (TAGS.get(k), v))
+	return img.mode
 
-'''
-    img = Image.open(fname)
-    exif = img.getexif()
+def is_grayscale(fname):
+	mode = get_image_mode(fname)
+	return mode == 'L'
 
-    print('>>>>>>>>>>>>>>>>>>', 'Base tags', '<<<<<<<<<<<<<<<<<<<<')
-    for k, v in exif.items():
-        tag = TAGS.get(k, k)
-        print(tag, v)
+def replace_color(img, old_color, new_color):
+	boolmask = np.all(img == old_color, axis=-1)
+	img[boolmask]=new_color
 
-    for ifd_id in IFD:
-        print('>>>>>>>>>', ifd_id.name, '<<<<<<<<<<')
-        try:
-            ifd = exif.get_ifd(ifd_id)
+def get_unique_classes(mask):
+	classes = np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
+	dbgprint(dataloader, LogLevel.INFO,  f"Num classes	: {len(classes)}")
+	dbgprint(dataloader, LogLevel.DEBUG, f"Classes		: {classes}")
+	return classes
 
-            if ifd_id == IFD.GPSInfo:
-                resolve = GPSTAGS
-            else:
-                resolve = TAGS
-
-            for k, v in ifd.items():
-                tag = resolve.get(k, k)
-                print(tag, v)
-        except KeyError:
-            pass
-'''
-
+def replace_class_colors(mask, classes):
+	for idx,cls in enumerate(classes):
+		new_color = get_rgb_by_idx(idx)
+		new_name  = get_name_by_rgb(new_color)
+		dbgprint(dataloader, LogLevel.INFO, f"Class		: {idx} {cls} -> {new_color} ({new_name})")
+		replace_color(mask, cls, get_rgb_by_idx(idx))
 
 def read_image(image_path, mask_path):					# read and resize image and mask
-	read_exif(image_path)
-	img	= cv2.imread(image_path)[...,::-1]			# read image as rgb
+	if is_grayscale(image_path):
+		flag = cv2.IMREAD_GRAYSCALE
+		dbgprint(dataloader, LogLevel.INFO, f"Reading gray img	: {image_path}")
+	else:
+		flag = cv2.IMREAD_COLOR
+		dbgprint(dataloader, LogLevel.INFO, f"Reading color img	: {image_path}")
+	img	= cv2.imread(image_path, flag)[...,::-1]		# read image as rgb
 	dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {img.shape}")
-	#dbgprint(dataloader, LogLevel.INFO, "\n".join([(ExifTags.TAGS[k] + f": {v}") for (k, v) in img.getexif().items() if k in ExifTags.TAGS]))
 
-	read_exif(mask_path)
-	#mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)		# mask of the region we want to segment
-	mask	= cv2.imread(mask_path)					# mask of the region we want to segment
+	if is_grayscale(mask_path):
+		flag = cv2.IMREAD_GRAYSCALE
+		dbgprint(dataloader, LogLevel.INFO, f"Reading gray mask	: {mask_path}")
+	else:
+		flag = cv2.IMREAD_COLOR
+		dbgprint(dataloader, LogLevel.INFO, f"Reading color mask: {mask_path}")
+	mask	= cv2.imread(mask_path, flag)				# mask of the region we want to segment
 	dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 
-	classes	= np.unique(test, axis=0, return_counts = True)
-	dbgprint(dataloader, LogLevel.INFO, f"Classes		: {classes}")
+	classes	= get_unique_classes(mask)
+
+	replace_class_colors(mask, classes)
+
+	#classes	= np.unique(mask, axis=1, return_counts = True)
+	#classes	= np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
+	#dbgprint(dataloader, LogLevel.INFO,  f"Num classes	: {len(classes)}")
+	#dbgprint(dataloader, LogLevel.DEBUG, f"Classes		: {classes}")
+	submask = mask[280:330, 280:330]
+	dbgprint(dataloader, LogLevel.TRACE, f'submask shape: {submask.shape}')
+	dbgprint(dataloader, LogLevel.TRACE, f'submask      : {submask}')
+	#replace_color(submask, [0, 0, 0], [63, 64, 65])
+	#submask[submask==[0,0,0]]=64
+	#boolmask = np.all(submask == [0, 0, 0], axis=-1)
+	#submask[boolmask]=64
+	#replace_color(submask, get_rgb_by_name('black'), get_rgb_by_name('dark salmon'))
+	#classes	= np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
+	#print(classes[0].shape)
+	#dbgprint(dataloader, LogLevel.INFO, f"Classes		: {classes}")
+	'''
+	for idx,cls in enumerate(classes):
+		new_color = get_rgb_by_idx(idx)
+		new_name  = get_name_by_rgb(new_color)
+		dbgprint(dataloader, LogLevel.INFO, f"Class		: {idx} {cls} -> {new_color} ({new_name})")
+		#replace_color(mask, cls, popular_colors[idx]["rgb"])
+		replace_color(mask, cls, get_rgb_by_idx(idx))
+	'''
+	cv2.imshow(f"submask", submask)
+	cv2.waitKey()
 	'''
 	newmask = mask
 	newmask[newmask==0]=64
@@ -152,7 +162,7 @@ def get_points(mask, num_points): # Sample points inside the input mask
 	points=[]
 	for i in range(num_points):
 		coords = np.argwhere(mask > 0)
-		dbgprint(dataloader, LogLevel.INFO, f"Coords		: {coords.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Coords		: {coords.shape}")
 		yx = np.array(coords[np.random.randint(len(coords))])
 		points.append([[yx[1], yx[0]]])
 	return np.array(points)
@@ -201,6 +211,7 @@ def blend_images(image, seg_map):
 
 def save_images(rgb_image, blended, image_path, mask_path):
 	# save and display
+	dbgprint(dataloader, LogLevel.INFO, f"Saving images	: {image_path[:-4]}-annotation.png and {image_path[:-4]}-blended.png")
 	cv2.imwrite(f"{image_path[:-4]}-annotation.png",	rgb_image)
 	cv2.imwrite(f"{image_path[:-4]}-blended.png",		blended.astype(np.uint8))
 	
