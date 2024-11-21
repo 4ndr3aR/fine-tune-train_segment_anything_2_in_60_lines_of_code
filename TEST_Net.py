@@ -26,16 +26,6 @@ from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_
 # use bfloat16 for the entire script (memory efficient)
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
 
-# Load image
-
-'''
-image_path = r"sample_image.jpg" # path to image
-mask_path  = r"sample_mask.png" # path to mask, the mask will define the image region to segment
-
-MIN_MAX_SIZE = 0.05
-MODEL_CHECKPOINT = "models-LabPicsV1-bs63-20241115/valid/sam2_hiera_small-validation-epoch-706-iou-0.70-best-loss-0.06-segloss-0.05-scoreloss-0.15.pth"
-'''
-
 def parse_arguments():
 	# Initialize the parser
 	parser = argparse.ArgumentParser(description='Segmentation model arguments')
@@ -119,43 +109,18 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 
 	replace_class_colors(mask, classes)
 
-	#classes	= np.unique(mask, axis=1, return_counts = True)
-	#classes	= np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
-	#dbgprint(dataloader, LogLevel.INFO,  f"Num classes	: {len(classes)}")
-	#dbgprint(dataloader, LogLevel.DEBUG, f"Classes		: {classes}")
-	submask = mask[280:330, 280:330]
-	dbgprint(dataloader, LogLevel.TRACE, f'submask shape: {submask.shape}')
-	dbgprint(dataloader, LogLevel.TRACE, f'submask      : {submask}')
-	#replace_color(submask, [0, 0, 0], [63, 64, 65])
-	#submask[submask==[0,0,0]]=64
-	#boolmask = np.all(submask == [0, 0, 0], axis=-1)
-	#submask[boolmask]=64
-	#replace_color(submask, get_rgb_by_name('black'), get_rgb_by_name('dark salmon'))
-	#classes	= np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
-	#print(classes[0].shape)
-	#dbgprint(dataloader, LogLevel.INFO, f"Classes		: {classes}")
-	'''
-	for idx,cls in enumerate(classes):
-		new_color = get_rgb_by_idx(idx)
-		new_name  = get_name_by_rgb(new_color)
-		dbgprint(dataloader, LogLevel.INFO, f"Class		: {idx} {cls} -> {new_color} ({new_name})")
-		#replace_color(mask, cls, popular_colors[idx]["rgb"])
-		replace_color(mask, cls, get_rgb_by_idx(idx))
-	'''
-	cv2.imshow(f"submask", submask)
-	cv2.waitKey()
-	'''
-	newmask = mask
-	newmask[newmask==0]=64
-	cv2.imshow(f"newmask", newmask)
-	cv2.waitKey()
-	'''
+	if debug_masks:
+		submask = mask[280:330, 280:330]
+		dbgprint(dataloader, LogLevel.TRACE, f'submask shape: {submask.shape}')
+		dbgprint(dataloader, LogLevel.TRACE, f'submask      : {submask}')
+		cv2.imshow(f"submask", submask)
+		cv2.waitKey()
 
 	# Resize image to maximum size of 1024
-
 	r = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
 	img  = cv2.resize(img,  (int(img.shape[1]  * r), int(img.shape[0]  * r)))
 	mask = cv2.resize(mask, (int(mask.shape[1] * r), int(mask.shape[0] * r)),interpolation=cv2.INTER_NEAREST)
+
 	return img, mask
 
 def get_points(mask, num_points): # Sample points inside the input mask
@@ -258,18 +223,12 @@ if __name__ == "__main__":
 
 		dbgprint(dataloader, LogLevel.INFO, f'Found {len(image_files)} images and {len(mask_files)} masks')
 
-		#counter=0
 		for imgfn, mskfn in zip(image_files, mask_files):
-			#if counter < 5:
-			#	counter+=1
-			#	continue
 			dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
 			image, mask	= read_image(imgfn, mskfn)
 			cv2.imshow(f"image", image)
 			cv2.imshow(f"mask", mask)
 			cv2.waitKey()
-			#dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {image.shape}")
-			#dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 			input_points	= get_points(mask, num_samples)	# read image and sample points
 			dataset.append((image, mask, input_points, imgfn, mskfn))
 
