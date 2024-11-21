@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import exifread
 import torch
 import cv2
 
@@ -65,16 +66,80 @@ def create_model(arch="small", checkpoint="model.pth"):
 	predictor.model.load_state_dict(torch.load(checkpoint))
 	return predictor
 
+'''
+def read_exif(fn):
+	# Read the image file as an EXIF JPEG
+	# Open image file for reading (binary mode)
+	f = open(fn, 'rb')
+
+	# Return Exif tags
+	tags = exifread.process_file(f)
+	dbgprint(dataloader, LogLevel.INFO, f"Image EXIF tags	: {tags}")
+	return tags
+'''
+from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS, IFD
+#from pillow_heif import register_heif_opener    # HEIF support
+#import pillow_avif                              # AVIF support
+
+#register_heif_opener()                          # HEIF support
+
+#def print_exif(fname: str):
+def get_image_mode(fname):
+	img = Image.open(fname)
+	print(type(img))
+	print(img.mode)
+	exif = img.getexif()
+	for (k,v) in img.getexif().items():
+		print(k,v)
+		print('%s = %s' % (TAGS.get(k), v))
+
+'''
+    img = Image.open(fname)
+    exif = img.getexif()
+
+    print('>>>>>>>>>>>>>>>>>>', 'Base tags', '<<<<<<<<<<<<<<<<<<<<')
+    for k, v in exif.items():
+        tag = TAGS.get(k, k)
+        print(tag, v)
+
+    for ifd_id in IFD:
+        print('>>>>>>>>>', ifd_id.name, '<<<<<<<<<<')
+        try:
+            ifd = exif.get_ifd(ifd_id)
+
+            if ifd_id == IFD.GPSInfo:
+                resolve = GPSTAGS
+            else:
+                resolve = TAGS
+
+            for k, v in ifd.items():
+                tag = resolve.get(k, k)
+                print(tag, v)
+        except KeyError:
+            pass
+'''
+
+
 def read_image(image_path, mask_path):					# read and resize image and mask
-	img  = cv2.imread(image_path)[...,::-1]				# read image as rgb
+	read_exif(image_path)
+	img	= cv2.imread(image_path)[...,::-1]			# read image as rgb
+	dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {img.shape}")
+	#dbgprint(dataloader, LogLevel.INFO, "\n".join([(ExifTags.TAGS[k] + f": {v}") for (k, v) in img.getexif().items() if k in ExifTags.TAGS]))
+
+	read_exif(mask_path)
 	#mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)		# mask of the region we want to segment
-	mask = cv2.imread(mask_path)					# mask of the region we want to segment
-	#'''
+	mask	= cv2.imread(mask_path)					# mask of the region we want to segment
+	dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
+
+	classes	= np.unique(test, axis=0, return_counts = True)
+	dbgprint(dataloader, LogLevel.INFO, f"Classes		: {classes}")
+	'''
 	newmask = mask
 	newmask[newmask==0]=64
 	cv2.imshow(f"newmask", newmask)
 	cv2.waitKey()
-	#'''
+	'''
 
 	# Resize image to maximum size of 1024
 
@@ -157,11 +222,9 @@ if __name__ == "__main__":
 	dataset = []
 
 	if dir_path == "":
-		dbgprint(dataloader, LogLevel.INFO, f"Image Path	: {image_path}")
-		dbgprint(dataloader, LogLevel.INFO, f"Mask Path	: {mask_path}")
+		dbgprint(dataloader, LogLevel.INFO, f"Image path	: {image_path}")
+		dbgprint(dataloader, LogLevel.INFO, f"Mask path	: {mask_path}")
 		image, mask	= read_image(image_path, mask_path)
-		dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {image.shape}")
-		dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 		input_points	= get_points(mask, num_samples)		# read image and sample points
 		dataset.append((image, mask, input_points, image_path, mask_path))
 	else:
@@ -194,8 +257,8 @@ if __name__ == "__main__":
 			cv2.imshow(f"image", image)
 			cv2.imshow(f"mask", mask)
 			cv2.waitKey()
-			dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {image.shape}")
-			dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
+			#dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {image.shape}")
+			#dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 			input_points	= get_points(mask, num_samples)	# read image and sample points
 			dataset.append((image, mask, input_points, imgfn, mskfn))
 
