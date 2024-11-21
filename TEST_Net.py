@@ -230,16 +230,10 @@ if __name__ == "__main__":
 		for imgfn, mskfn in zip(image_files, mask_files):
 			dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
 			image, mask	= read_image(imgfn, mskfn)
-<<<<<<< HEAD
 			if debug_masks or True:
 				cv2.imshow(f"image", image)
 				cv2.imshow(f"mask", mask[...,::-1])
 				cv2.waitKey()
-=======
-			cv2.imshow(f"image", image)
-			cv2.imshow(f"mask", mask)
-			cv2.waitKey()
->>>>>>> c36eb72ee595d163a9a0034b848e2fc432236711
 			input_points	= get_points(mask, num_samples)	# read image and sample points
 			dataset.append((image, mask, input_points, imgfn, mskfn))
 
