@@ -5,6 +5,7 @@ import random
 
 # Define a list of popular RGB colors
 popular_colors = [
+    {"name": "Black", "rgb": [0, 0, 0]},
     {"name": "Red", "rgb": [255, 0, 0]},
     {"name": "Green", "rgb": [0, 255, 0]},
     {"name": "Blue", "rgb": [0, 0, 255]},
@@ -12,7 +13,6 @@ popular_colors = [
     {"name": "Cyan", "rgb": [0, 255, 255]},
     {"name": "Magenta", "rgb": [255, 0, 255]},
     {"name": "White", "rgb": [255, 255, 255]},
-    {"name": "Black", "rgb": [0, 0, 0]},
     {"name": "Gray", "rgb": [128, 128, 128]},
     {"name": "Orange", "rgb": [255, 165, 0]},
     {"name": "Purple", "rgb": [128, 0, 128]},

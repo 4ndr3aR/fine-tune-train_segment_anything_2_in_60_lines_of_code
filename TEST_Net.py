@@ -4,6 +4,7 @@
 
 import sys
 import glob
+import copy
 import argparse
 from pathlib import Path
 
@@ -14,6 +15,8 @@ import cv2
 
 import PIL
 from PIL import Image
+
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
@@ -68,26 +71,37 @@ def get_image_mode(fname):
 def is_grayscale(fname):
 	mode = get_image_mode(fname)
 	return mode == 'L'
+def is_grayscale_img(img):
+	return img.shape[2] == 1 or len(img.shape) == 2
 
 def replace_color(img, old_color, new_color):
 	boolmask = np.all(img == old_color, axis=-1)
 	img[boolmask]=new_color
 
-def get_unique_classes(mask):
-	uniques = np.unique(mask.reshape(-1, mask.shape[2]), axis=0, return_counts=True)
+def get_unique_classes(mask, is_grayscale = False):
+	if is_grayscale:
+		#mask = np.expand_dims(mask, axis=2)
+		uniques = np.unique(mask.reshape(-1, 1), axis=0, return_counts=True)
+	else:
+		uniques = np.unique(mask.reshape(-1, mask.shape[2]), axis=0, return_counts=True)
 	classes = uniques[0]
 	freqs   = uniques[1]
 	dbgprint(dataloader, LogLevel.INFO,  f"Num classes	: {len(classes)}")
 	dbgprint(dataloader, LogLevel.DEBUG, f"Classes		: {classes}")
 	return classes, freqs
 
-def replace_class_colors(mask, classes, freqs=[]):
+def replace_class_colors(rgb_mask, classes, freqs=[]):
+	dbgprint(dataloader, LogLevel.TRACE, f"Classes		: {classes}")
 	for idx,cls in enumerate(classes):
+		dbgprint(dataloader, LogLevel.TRACE, f"Idx		: {idx}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Cls		: {cls}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Freqs		: {freqs}")
 		new_color = get_rgb_by_idx(idx)
 		new_name  = get_name_by_rgb(new_color)
 		extra_str = f' - {freqs[idx]} px' if len(freqs) > 0 else ''
 		dbgprint(dataloader, LogLevel.INFO, f"Class		: {idx} {cls} -> {new_color} ({new_name}{extra_str})")
-		replace_color(mask, cls, new_color)
+		replace_color(rgb_mask, cls, new_color)
+	return rgb_mask
 
 def read_image(image_path, mask_path):					# read and resize image and mask
 	if is_grayscale(image_path):
@@ -108,10 +122,16 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	mask	= cv2.imread(mask_path, flag)				# mask of the region we want to segment
 	dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 
-	classes, freqs = get_unique_classes(mask)
+	rgb_mask	= np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+	rgb_mask[:,:,0]	= copy.deepcopy(mask)
+	rgb_mask[:,:,1]	= copy.deepcopy(mask)
+	rgb_mask[:,:,2]	= copy.deepcopy(mask)
+	dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
+	classes, freqs	= get_unique_classes(rgb_mask, is_grayscale_img(rgb_mask))
 
 	#replace_color(mask, [0, 0, 0], [64, 64, 64])
-	replace_class_colors(mask, classes, freqs=freqs)
+	#rgb_mask = mask.deepcopy()
+	rgb_mask = replace_class_colors(rgb_mask, classes, freqs=freqs)
 
 	if debug_masks:
 		submask = mask[280:330, 280:330]
@@ -120,12 +140,16 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 		cv2.imshow(f"submask", submask)
 		cv2.waitKey()
 
-	# Resize image to maximum size of 1024
-	r = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
-	img  = cv2.resize(img,  (int(img.shape[1]  * r), int(img.shape[0]  * r)))
-	mask = cv2.resize(mask, (int(mask.shape[1] * r), int(mask.shape[0] * r)),interpolation=cv2.INTER_NEAREST)
+	dbgprint(dataloader, LogLevel.TRACE, f"Image shape	: {img.shape}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Mask  shape	: {mask.shape}")
+	dbgprint(dataloader, LogLevel.TRACE, f"RGB mask shape	: {rgb_mask.shape}")
 
-	return img, mask
+	# Resize image to maximum size of 1024
+	r        = np.min([1024 / img.shape[1], 1024 / img.shape[0]])
+	img      = cv2.resize(img,	(int(img.shape[1]	* r), int(img.shape[0]	* r)))
+	rgb_mask = cv2.resize(rgb_mask,	(int(rgb_mask.shape[1]	* r), int(mask.shape[0]	* r)), interpolation=cv2.INTER_NEAREST)
+
+	return img, mask, rgb_mask
 
 def get_points(mask, num_points): # Sample points inside the input mask
 	points=[]
@@ -135,6 +159,30 @@ def get_points(mask, num_points): # Sample points inside the input mask
 		yx = np.array(coords[np.random.randint(len(coords))])
 		points.append([[yx[1], yx[0]]])
 	return np.array(points)
+
+def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-1):
+	"""
+	Draws a list of (x, y) points onto an image.
+
+	Parameters:
+	- image: The input image (numpy array).
+	- points: List of (x, y) tuples representing the points to draw.
+	- color: The color of the points (BGR format). Default is red (0, 0, 255).
+	- radius: The radius of the circles. Default is 5.
+	- thickness: The thickness of the circles. -1 fills the circle. Default is -1.
+
+	Returns:
+	- The image with the points drawn on it.
+	"""
+
+	dbgprint(dataloader, LogLevel.TRACE, f"Points type	: {type(points)}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Points shape	: {points.shape}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Points		: {points}")
+	for item in points:
+		x, y = item[0]
+		dbgprint(dataloader, LogLevel.TRACE, f"Drawing circle at	: {x} {y}")
+		cv2.circle(image, (x, y), radius, color, thickness)
+	return image
 
 def predict(image, input_points):
 	# predict mask
@@ -167,27 +215,66 @@ def sort_masks(masks, scores, min_max_size, debug=False):
 
 	return seg_map
 
-def blend_images(image, seg_map):
+def blend_images(image, seg_map, rgb_mask):
 	# create colored annotation map
 	height, width = seg_map.shape
 	
 	# Create an empty RGB image for the colored annotation
-	rgb_image = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
+	#rgb_mask = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
 	for id_class in range(1,seg_map.max()+1):
-		rgb_image[seg_map == id_class] = [np.random.randint(255), np.random.randint(255), np.random.randint(255)]
-	blended = (rgb_image/2+image/2)[...,::-1]  # read image as rgb
-	return rgb_image, blended
+		rgb_mask[seg_map == id_class] = [np.random.randint(255), np.random.randint(255), np.random.randint(255)]
+	blended = (rgb_mask/2+image/2)[...,::-1]  # read image as rgb
+	return blended
 
-def save_images(rgb_image, blended, image_path, mask_path):
+def save_images(image, mask, rgb_mask, blended, image_path, mask_path):
 	# save and display
 	dbgprint(dataloader, LogLevel.INFO, f"Saving images	: {image_path[:-4]}-annotation.png and {image_path[:-4]}-blended.png")
-	cv2.imwrite(f"{image_path[:-4]}-annotation.png",	rgb_image)
+	cv2.imwrite(f"{image_path[:-4]}-annotation.png",	rgb_mask)
 	cv2.imwrite(f"{image_path[:-4]}-blended.png",		blended.astype(np.uint8))
 	
-	cv2.imshow(f"{image_path[:-4]}-annotation",		rgb_image[...,::-1])
+	cv2.imshow(f"{image_path[:-4]}-original-mask",		mask[...,::-1])
+	cv2.imshow(f"{image_path[:-4]}-annotation",		rgb_mask[...,::-1])
 	cv2.imshow(f"{image_path[:-4]}-blended",		blended.astype(np.uint8))
 	cv2.imshow(f"{image_path[:-4]}-image",			image[...,::-1])
 	cv2.waitKey()
+
+def load_images(image_files, mask_files):					# serial version
+	for imgfn, mskfn in zip(image_files, mask_files):
+		dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
+		image, mask, rgb_mask = read_image(imgfn, mskfn)
+		if debug_masks:
+			cv2.imshow(f"image", image)
+			cv2.imshow(f"mask", mask[...,::-1])
+			cv2.waitKey()
+		input_points	= get_points(mask, num_samples)	# read image and sample points
+		dataset.append((image, mask, rgb_mask, input_points, imgfn, mskfn))
+	return dataset
+
+def load_and_process_image(imgfn, mskfn, num_samples, debug_masks=False):	# parallel version
+	dbgprint(dataloader, LogLevel.INFO, f"Loading images    : {Path(imgfn).name} - {Path(mskfn).name}")
+	#print(f"Loading images    : {imgfn} - {mskfn}")
+	#image, mask = read_image(imgfn, mskfn)
+	image, mask, rgb_mask = read_image(imgfn, mskfn)
+
+	if debug_masks:
+		cv2.imshow(f"image", image)
+		cv2.imshow(f"mask", mask[...,::-1])
+		cv2.waitKey()
+
+	input_points = get_points(mask, num_samples)
+	return (image, mask, rgb_mask, input_points, imgfn, mskfn)
+
+def parallelize_image_processing(image_files, mask_files, num_samples, debug_masks=False):
+	dataset = []
+	with ThreadPoolExecutor() as tpe, ProcessPoolExecutor() as ppe:
+		futures = []
+		for imgfn, mskfn in zip(image_files, mask_files):
+			futures.append(ppe.submit(load_and_process_image, imgfn, mskfn, num_samples, debug_masks))
+
+		for future in futures:
+			result = future.result()
+			dataset.append(result)
+	return dataset
 
 if __name__ == "__main__":
 	args		= parse_arguments()
@@ -197,17 +284,22 @@ if __name__ == "__main__":
 	checkpoint	= args.model
 	dir_path	= args.dir_path
 	debug_masks	= args.debug_masks
-	num_samples	= 30						# number of points/segment to sample
+	num_samples	= 30							# number of points/segment to sample
 
 	dataset = []
 
-	if dir_path == "":
+	if dir_path == "":							# the user didn't specify a dataset, load a single sample_image/mask pair
+		parallelize_image_loading = False
 		dbgprint(dataloader, LogLevel.INFO, f"Image path	: {image_path}")
 		dbgprint(dataloader, LogLevel.INFO, f"Mask path	: {mask_path}")
-		image, mask	= read_image(image_path, mask_path)
-		input_points	= get_points(mask, num_samples)		# read image and sample points
-		dataset.append((image, mask, input_points, image_path, mask_path))
-	else:
+		#image, mask	= read_image(image_path, mask_path)
+		image, mask, rgb_mask	= read_image(image_path, mask_path)
+		input_points		= get_points(mask, num_samples)		# read image and sample points
+		dataset.append((image, mask, rgb_mask, input_points, image_path, mask_path))
+		image_files		= [image_path]
+		mask_files		= [mask_path]
+	else:									# the user did specify a dataset, scan the directory and load all images in parallel to speed up things
+		parallelize_image_loading = True
 		dir_path = Path(dir_path)
 		dbgprint(dataloader, LogLevel.INFO, f"Dataset dir	: {dir_path}")
 		imgs_dir  = dir_path / 'rgb'
@@ -227,27 +319,24 @@ if __name__ == "__main__":
 
 		dbgprint(dataloader, LogLevel.INFO, f'Found {len(image_files)} images and {len(mask_files)} masks')
 
-		for imgfn, mskfn in zip(image_files, mask_files):
-			dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
-			image, mask	= read_image(imgfn, mskfn)
-			if debug_masks or True:
-				cv2.imshow(f"image", image)
-				cv2.imshow(f"mask", mask[...,::-1])
-				cv2.waitKey()
-			input_points	= get_points(mask, num_samples)	# read image and sample points
-			dataset.append((image, mask, input_points, imgfn, mskfn))
+	if parallelize_image_loading:
+		dataset = parallelize_image_processing(image_files, mask_files, num_samples, debug_masks)	# parallel version
+	else:
+		dataset = load_images(image_files, mask_files)							# serial version
 
 	dbgprint(dataloader, LogLevel.INFO, f"Min Max Size	: {min_max_size}")
 	dbgprint(dataloader, LogLevel.INFO, f"Model Checkpoint	: {checkpoint}")
 	predictor = create_model(arch="small", checkpoint=checkpoint)		# create arch and load model
 
-	for image, mask, input_points, image_path, mask_path in dataset:
+	for image, mask, rgb_mask, input_points, image_path, mask_path in dataset:
 		dbgprint(dataloader, LogLevel.INFO, f"Image Path	: {image_path}")
 		dbgprint(dataloader, LogLevel.INFO, f"Mask Path	: {mask_path}")
 
 		masks, scores, logits	= predict(image, input_points)					# sort the maps by "occupancy score"
 		seg_map			= sort_masks(masks, scores, min_max_size, debug=debug_masks)	# fuse the highest scoring maps into a segmentation map
-		rgb_image, blended	= blend_images(image, seg_map)					# blend original image with the segmentation map
+		blended			= blend_images(image, seg_map, rgb_mask)			# blend original image with the segmentation map
 
-		save_images(rgb_image, blended, image_path, mask_path)
+		rgb_mask		= draw_points_on_image(rgb_mask, input_points)
+
+		save_images(image, mask, rgb_mask, blended, image_path, mask_path)
 
