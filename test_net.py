@@ -30,6 +30,16 @@ from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
 
 def parse_arguments():
+	'''
+	Usage:
+
+	./test_net.py --model models-LabPicsV1-bs63-20241115/valid/sam2_hiera_small-validation-epoch-264-iou-0.71-best-loss-0.05-segloss-0.05-scoreloss-0.16.pth --dir /tmp/labpics
+
+	or
+
+	./test_net.py --model models-LabPicsV1-bs63-20241115/valid/sam2_hiera_small-validation-epoch-264-iou-0.71-best-loss-0.05-segloss-0.05-scoreloss-0.16.pth # single image version
+	'''
+
 	# Initialize the parser
 	parser = argparse.ArgumentParser(description='Segmentation model arguments')
 
