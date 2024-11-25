@@ -27,6 +27,8 @@ def parse_arguments():
 if __name__ == "__main__":
 	args = parse_arguments()		# get the GPU to use, then import torch and everything else...
 
+from pathlib import Path
+
 import numpy as np
 import torch
 
@@ -52,27 +54,27 @@ def unpack_resolution(resolution_str):
     return width, height
 
 def decode_split_ratio(split_str):
-    """Decodes the split ratio string and returns train, validation, and test ratios."""
-    ratios = split_str.split('/')
-    if len(ratios) != 3:
-        raise ValueError("Split ratio should be in 'train/val/test' format (e.g., 70/20/10)")
-    
-    try:
-        train_ratio = int(ratios[0]) / 100
-        val_ratio = int(ratios[1]) / 100
-        test_ratio = int(ratios[2]) / 100
-    except ValueError:
-        raise ValueError("Split ratios must be integers")
+	"""Decodes the split ratio string and returns train, validation, and test ratios."""
+	ratios = split_str.split('/')
+	if len(ratios) != 3:
+		raise ValueError("Split ratio should be in 'train/val/test' format (e.g., 70/20/10)")
 
-    if train_ratio + val_ratio + test_ratio != 1.0:
-        raise ValueError("Split ratios must sum to 100")
-    
-    return train_ratio, val_ratio, test_ratio
+	try:
+		train_ratio = int(ratios[0]) / 100
+		val_ratio = int(ratios[1]) / 100
+		test_ratio = int(ratios[2]) / 100
+	except ValueError:
+		raise ValueError("Split ratios must be integers")
+
+	dbgprint(dataloader, LogLevel.TRACE, f'Split ratios: {train_ratio}, {val_ratio}, {test_ratio} = {round(train_ratio + val_ratio + test_ratio, 3)}')
+	if round(train_ratio + val_ratio + test_ratio, 3) != 1.0:
+		raise ValueError("Split ratios must sum to 100")
+
+	return train_ratio, val_ratio, test_ratio
 
 def init_wandb(use_wandb, args, project_name):
 	"""Initializes Weights & Biases if enabled."""
 	if use_wandb:
-		import wandb
 		wandb.init(project=project_name, config=args)	# Replace "your-project-name"
 
 def set_model_paths(model_size):
@@ -312,40 +314,66 @@ def calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05):
 
 # Validation function
 def validate(predictor, val_loader):
-    total_loss = 0
-    total_iou = 0
-    total_seg_loss = 0
-    total_score_loss = 0
-    count = 0
-    predictor.model.eval()
-    with torch.no_grad():
-        for image, mask, input_point in val_loader:
-            #image = torch.tensor(np.array(image)).cuda().permute(0, 3, 1, 2).float() / 255.0
-            input_point = torch.tensor(np.array(input_point)).cuda().float()
-            input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
+	total_loss = 0
+	total_iou = 0
+	total_seg_loss = 0
+	total_score_loss = 0
+	count = 0
+	predictor.model.eval()
+	with torch.no_grad():
+		for image, mask, input_point in val_loader:
 
-            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {type(image)    = } - {len(image)     = }')
-            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-            dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+			input_point = torch.tensor(np.array(input_point)).cuda().float()
+			input_label = torch.ones(input_point.shape[0], 1).cuda().float()		# create labels
 
-            prd_masks, prd_scores		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {len(image)     = } - {len(mask)      = } - {len(input_point) = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
-            total_loss += loss.item()
-            total_iou += iou.mean().item()
-            total_score_loss += score_loss.item()
-            total_seg_loss += seg_loss.item()
-            count += 1
+			prd_masks, prd_scores		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+			loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
 
-            avg_val_loss = total_loss / count
-            avg_val_iou = total_iou / count
-            avg_val_score_loss = total_score_loss / count
-            avg_val_seg_loss = total_seg_loss / count
+			if count == 0 and False:
+				#wandb_images = wandb.Image(image, caption="Validation 1st batch")
+				#wandb.log({"examples": images})
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'5. - {type(image) = } - {type(mask) = } - {type(prd_masks) = } - {type(prd_scores) = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'6. - {len(image)  = } - {len(mask)  = } - {prd_masks.shape = } - {prd_scores.shape = }')
 
-            dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
+				table = wandb.Table(columns=["Image", "Mask"])
 
-    return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, count
+				class_labels = {1: "class1", 2: "class2"}
+				for img, msk, prd_mask, prd_score in zip(images, mask, prd_masks, prd_scores):
+					gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).cuda()
+					prd_msk  = torch.sigmoid(prd_mask[:, 0])
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'7. - {gt_msk.shape = } - {prd_mask.shape = } - {prd_score.shape = }')
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'8. - {gt_msk = }')
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'9. - {prd_msk = }')
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'0. - {prd_score = }')
+
+					mask_img = wandb.Image(img, masks={
+										"prediction":	{"mask_data": prd_msk, "class_labels": class_labels},
+										"ground_truth":	{"mask_data": gt_msk,  "class_labels": class_labels}
+									})
+					table.add_data(img, prd_score[:, 0])
+				wandb.log({"Table": table})
+
+
+
+			total_loss += loss.item()
+			total_iou += iou.mean().item()
+			total_score_loss += score_loss.item()
+			total_seg_loss += seg_loss.item()
+			count += 1
+
+			avg_val_loss = total_loss / count
+			avg_val_iou = total_iou / count
+			avg_val_score_loss = total_score_loss / count
+			avg_val_seg_loss = total_seg_loss / count
+
+			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
+
+	return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, count
 
 
 
@@ -367,6 +395,9 @@ if __name__ == "__main__":
 	split			= args.split
 	image_resolution	= args.img_resolution
 	_breakpoints		= {}
+
+	if use_wandb:
+		import wandb
 
 	sam2_checkpoint, model_cfg		= set_model_paths(model_size)
 	train_ratio, val_ratio, test_ratio	= decode_split_ratio(split)
@@ -392,8 +423,13 @@ if __name__ == "__main__":
 	dbgprint(main, LogLevel.INFO, f"Model Config		: {model_cfg}")
 	dbgprint(main, LogLevel.INFO, f"==================================")
 
+	train_loader	= None
+	val_loader	= None
+	test_loader	= None
+
 	# Data Loaders
-	if "labpics" in dataset_name.lower():
+	if "labpic" in dataset_name.lower():
+		dbgprint(main, LogLevel.INFO, "Loading LabPics dataset...")
 		data_dir	= Path("/mnt/raid1/dataset/LabPicsV1")
 	
 		train_dataset	= LabPicsDataset(data_dir, split="Train")
@@ -401,6 +437,7 @@ if __name__ == "__main__":
 		val_dataset	= LabPicsDataset(data_dir, split="Test")
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 	elif "spread" in dataset_name.lower():
+		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
 		data_dir	= Path("/mnt/raid1/dataset/spread")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train")
@@ -413,6 +450,8 @@ if __name__ == "__main__":
 		test_loader	= DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 		
 		dbgprint(dataloader, LogLevel.INFO, f"Train: {len(train_dataset)} - Val: {len(val_dataset)} - Test: {len(test_dataset)}")
+	else:
+		raise Exception(f"Unknown dataset: {dataset_name}")
 	
 	# Load model
 	'''	
@@ -425,6 +464,10 @@ if __name__ == "__main__":
 	
 	sam2_model	= build_sam2(model_cfg, sam2_checkpoint, device="cuda")	# load model
 	predictor	= SAM2ImagePredictor(sam2_model)
+
+	# Magic
+	if use_wandb:
+		wandb.watch(predictor.model, log_freq=100)
 	
 	# Set training parameters
 	
@@ -438,33 +481,8 @@ if __name__ == "__main__":
 	# Training loop
 	
 	best_loss = float("inf")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	# Training loop
-	best_loss = float("inf")
 	best_iou  = float("-inf")
+	mean_iou  = 0
 	
 	for epoch in range(num_epochs):  # Example: 100 epochs
 		for itr, (image, mask, input_point) in enumerate(train_loader):
@@ -472,34 +490,57 @@ if __name__ == "__main__":
 				# ... (training code remains largely the same, but use data from the loader)
 	
 				dbgprint(train, LogLevel.TRACE, f'{type(image) = } {type(mask) = } {type(input_point) = }')
-				dbgprint(train, LogLevel.TRACE, f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
+				dbgprint(train, LogLevel.TRACE, f'{len(image)  = } {len(mask)  = } {len(input_point) = }')
 				input_point = torch.tensor(np.array(input_point)).cuda().float()
 				input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
 	
 				if isinstance(image, list):
 					if len(image)==0:
-						continue							# ignore empty batches
+						continue					# ignore empty batches
 				if isinstance(mask, list):
 					if len(mask)==0:
-						continue							# ignore empty batches
+						continue					# ignore empty batches
 				if isinstance(mask, torch.Tensor):
 					if mask.shape[0]==0:
-						continue							# ignore empty batches
+						continue					# ignore empty batches
 	
 				prd_masks, prd_scores 		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
+
+				if use_wandb:
+					wandb.log({"loss": loss, "seg_loss": seg_loss, "score_loss": score_loss, "iou": iou.mean().item(), "mean_iou": mean_iou, "epoch": epoch, "itr": itr, "best_iou": best_iou, "best_loss": best_loss})
+					if itr == 0 and False:
+						#wandb_images = wandb.Image(image, caption="Validation 1st batch")
+						#wandb.log({"examples": images})
+						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'5. - {type(image) = } - {type(mask) = } - {type(prd_masks) = } - {type(prd_scores) = }')
+						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'6. - {len(image)  = } - {len(mask)  = } - {prd_masks.shape = } - {prd_scores.shape = }')
+		
+						table = wandb.Table(columns=["Image/Pred/GT"])
+		
+						class_labels = {1: "class1", 2: "class2"}
+						for img, msk, prd_mask, prd_score in zip(image, mask, prd_masks, prd_scores):
+							gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).detach().cpu().numpy()
+							prd_msk  = torch.sigmoid(prd_mask[:, 0]).detach().cpu().numpy()
+							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'7. - {gt_msk.shape = } - {prd_mask.shape = } - {prd_score.shape = }')
+							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'8. - {gt_msk = }')
+							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'9. - {prd_msk = }')
+							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'0. - {prd_score = }')
+		
+							mask_img = wandb.Image(img, masks={
+												"prediction":	{"mask_data": prd_msk, "class_labels": class_labels},
+												"ground_truth":	{"mask_data": gt_msk,  "class_labels": class_labels}
+											})
+							table.add_data(img)#, prd_score[:, 0])
+						wandb.log({"Table": table})
 	
 				# apply back propogation
 	
-				predictor.model.zero_grad()						# empty gradient
+				predictor.model.zero_grad()					# empty gradient
 				scaler.scale(loss).backward()					# Backpropagate
 				scaler.step(optimizer)
 				scaler.update()							# Mix precision
 	
 				# Display results
-	
-				if itr == 0:
-					mean_iou = 0
 	
 				mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
 				dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
@@ -513,7 +554,12 @@ if __name__ == "__main__":
 	
 		avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
 		dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
-	
+
+
+		if use_wandb:
+			wandb.log({"val_loss": avg_val_loss, "val_iou": avg_val_iou, "val_seg_loss": avg_val_seg_loss, "val_score_loss": avg_val_score_loss, "epoch": epoch, "best_iou": best_iou, "best_loss": best_loss, "mean_iou": mean_iou, "num_batches": num_batches})
+
+
 		if avg_val_loss < best_loss or avg_val_iou > best_iou:
 			best_loss = avg_val_loss
 			best_iou  = avg_val_iou
