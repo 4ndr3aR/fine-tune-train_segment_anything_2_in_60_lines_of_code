@@ -1,7 +1,31 @@
 #!/usr/bin/env python3
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+import argparse
+
+def parse_arguments():
+	parser = argparse.ArgumentParser(description="Configuration for your script")
+
+	parser.add_argument("--gpu_id",		type=int,	default=0,		help="GPU ID to use (default: 0)")
+	parser.add_argument("--num_workers",	type=int,	default=16,		help="Number of worker threads (default: 16)")
+	parser.add_argument("--num_epochs",	type=int,	default=1000,		help="Number of training epochs (default: 1000)")
+	parser.add_argument("--batch_size",	type=int,	default=63,		help="Batch size for training (default: 63)")
+	parser.add_argument("--model_size",	type=str,	default='small',	help="Model size (default: small)", choices=['tiny', 'small', 'base', 'large'])
+	parser.add_argument("--dataset_name",	type=str,	default="LabPicsV1",	help="Path to the dataset directory")
+	parser.add_argument("--use_wandb",	action="store_true",			help="Enable Weights & Biases logging (default: False)")
+	parser.add_argument("--lr",		type=float,	default=1e-5,		help="Learning rate (default: 1e-5)")
+	parser.add_argument("--wr",		type=float,	default=4e-5,		help="Weight regularization rate (default: 4e-5)")
+	parser.add_argument("--split",		type=str,	default='70/20/10',	help="Train/validation/test split ratio (default: 70/20/10)")
+	parser.add_argument("--img_resolution", type=str,	default='960x540',	help="Image resolution in widthxheight format (default: 960x540)")
+
+	args = parser.parse_args()
+
+	os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
+
+	return args
+
+if __name__ == "__main__":
+	args = parse_arguments()		# get the GPU to use, then import torch and everything else...
 
 import numpy as np
 import torch
@@ -18,9 +42,59 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 from dbgprint import dbgprint
 from dbgprint import *
 
-#pid = os.getpid()
-#dbgprint(test, LogLevel.INFO, f"Hello world! This is pid: {pid}")
-#sys.exit(0)
+def unpack_resolution(resolution_str):
+    """Unpacks the resolution string into width and height."""
+    try:
+        width, height = map(int, resolution_str.split('x'))
+    except ValueError:
+        raise ValueError("Image resolution should be in 'widthxheight' format (e.g., 960x540)")
+
+    return width, height
+
+def decode_split_ratio(split_str):
+    """Decodes the split ratio string and returns train, validation, and test ratios."""
+    ratios = split_str.split('/')
+    if len(ratios) != 3:
+        raise ValueError("Split ratio should be in 'train/val/test' format (e.g., 70/20/10)")
+    
+    try:
+        train_ratio = int(ratios[0]) / 100
+        val_ratio = int(ratios[1]) / 100
+        test_ratio = int(ratios[2]) / 100
+    except ValueError:
+        raise ValueError("Split ratios must be integers")
+
+    if train_ratio + val_ratio + test_ratio != 1.0:
+        raise ValueError("Split ratios must sum to 100")
+    
+    return train_ratio, val_ratio, test_ratio
+
+def init_wandb(use_wandb, args, project_name):
+	"""Initializes Weights & Biases if enabled."""
+	if use_wandb:
+		import wandb
+		wandb.init(project=project_name, config=args)	# Replace "your-project-name"
+
+def set_model_paths(model_size):
+    """Sets the checkpoint and configuration file paths based on the model size."""
+    if model_size == 'tiny':
+        sam2_checkpoint		= "sam2_hiera_tiny.pt"		# path to model weight
+        model_cfg		= "sam2_hiera_t.yaml"		# model config
+    elif model_size == 'small':
+        sam2_checkpoint		= "sam2_hiera_small.pt"
+        model_cfg		= "sam2_hiera_s.yaml"
+    elif model_size == 'base':
+        sam2_checkpoint		= "sam2_hiera_base.pt"
+        model_cfg		= "sam2_hiera_b.yaml"
+    elif model_size == 'large':
+        sam2_checkpoint		= "sam2_hiera_large.pt"
+        model_cfg		= "sam2_hiera_l.yaml"
+    else:
+        raise ValueError(f"Invalid model size: {model_size}")
+
+    return sam2_checkpoint, model_cfg
+
+
 
 # Dataset class for LabPicsV1 dataset
 class LabPicsDataset(Dataset):
@@ -67,7 +141,6 @@ class LabPicsDataset(Dataset):
         dbgprint(dataloader, LogLevel.TRACE, f'{type(Img)} {type(mask)} {type(point)}')
         return Img, mask, point
 
-#def collate_fn(data: List[Tuple[torch.Tensor, torch.Tensor]]):
 def collate_fn(data):
     dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 1. - {type(data)    = } {len(data)    = }')
     dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 2. - {type(data[0]) = } {len(data[0]) = }')
@@ -78,77 +151,6 @@ def collate_fn(data):
     dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 6. - {type(masks)   = } {len(masks)   = }')
     dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 7. - {type(points)  = } {len(points)  = }')
     return list(imgs), list(masks), list(points)
-    #return torch.stack(imgs), torch.stack(masks), torch.stack(points)
-
-
-# Dataset class for SPREAD dataset
-#class SpreadDataset(Dataset):
-#    def __init__(self, data_dir, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
-#        self.data_dir = data_dir
-#        self.split = split
-#        
-#        # Collect all data entries
-#        self.data = []
-#        for class_dir in os.listdir(data_dir):
-#            #print(f'Reading directory: {class_dir}')
-#            if not os.path.isdir(os.path.join(data_dir, class_dir)):
-#                continue
-#            rgb_dir = os.path.join(data_dir, class_dir, "rgb")
-#            #print(f'RGB directory: {rgb_dir}')
-#            if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
-#                continue
-#            instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
-#            #print(f'Instance segmentation directory: {instance_dir}')
-#            if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
-#                continue
-#            for name in os.listdir(rgb_dir):
-#                self.data.append({
-#                    "image": os.path.join(rgb_dir, name),
-#                    "annotation": os.path.join(instance_dir, name)
-#                })
-#
-#        dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
-#
-#        # Create splits
-#        train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
-#        train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
-#        
-#        if split == "train":
-#            self.data = train_data
-#        elif split == "val":
-#            self.data = val_data
-#        elif split == "test":
-#            self.data = test_data
-#
-#    def __len__(self):
-#        return len(self.data)
-#
-#    def __getitem__(self, idx):
-#        ent = self.data[idx]
-#        Img = cv2.imread(ent["image"])[..., ::-1]  # Convert BGR to RGB
-#        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
-#
-#        # Resize images and masks to the same resolution
-#        Img = cv2.resize(Img, (960, 540))
-#        ann_map = cv2.resize(ann_map, (960, 540), interpolation=cv2.INTER_NEAREST)
-#
-#        # Process the annotation map
-#        mat_map = ann_map[:, :, 0]
-#        ves_map = ann_map[:, :, 2]
-#        mat_map[mat_map == 0] = ves_map[mat_map == 0] * (mat_map.max() + 1)
-#
-#        inds = np.unique(mat_map)[1:]
-#        if len(inds) > 0:
-#            ind = np.random.choice(inds)
-#            mask = (mat_map == ind).astype(np.uint8)
-#            coords = np.argwhere(mask > 0)
-#            yx = coords[np.random.randint(len(coords))]
-#            point = [[yx[1], yx[0]]]
-#        else:
-#            mask = np.zeros_like(mat_map, dtype=np.uint8)
-#            point = [[0, 0]]  # Provide a default point
-#
-#        return Img, mask, point
 
 class SpreadDataset(Dataset):
     def __init__(self, data_dir, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
@@ -223,84 +225,43 @@ class SpreadDataset(Dataset):
 
 
 
-# Set number of threads globally
-NUM_WORKERS = 16
-torch.set_num_threads(NUM_WORKERS)
-_breakpoints = {}
+
+'''
+GPU_ID = 0
+NUM_WORKERS = 16					# Set number of threads globally
 NUM_EPOCHS  = 1000
+batch_size = 63
+model_size = 'small'					# 'tiny' | 'small' | 'base' | 'large' - also write the function to set sam2_checkpoint/model_cfg variables to sam2_hiera_small.pt/sam2_hiera_s.yaml accordingly
+dataset_dir = "/mnt/raid1/dataset/LabPicsV1"		# This should be a pathlib Path
+use_wandb = False					# Also write the function to init wandb
+LR = 1e-5
+WR = 4e-5
+SPLIT = '70/20/10'					# Also write the function to decode this and return train_ratio, val_ratio, test_ratio
+IMAGE_RESOLUTION = '960x540'				# Also write the function to unpack this into w, h tuple (e.g. (960, 540))
+'''
 
 def reset_breakpoints(disabled=[]):
     global _breakpoints
     _breakpoints = dict((x, False) for x in disabled)
 
 def set_breakpoint(tag, condition=True):
-    if tag not in _breakpoints:
-        _breakpoints[tag] = True
-        if condition:
-            pdb.set_trace()
-    else:
-        if _breakpoints[tag] and condition:
-            pdb.set_trace()
+	# Use with:
 
-# Use with:
-# set_breakpoint('mycode0')
-# set_breakpoint('mycode1', x == 4)
+	# set_breakpoint('mycode0')
+	# set_breakpoint('mycode1', x == 4)
 
-
-
+	if tag not in _breakpoints:
+		_breakpoints[tag] = True
+		if condition:
+			pdb.set_trace()
+	else:
+		if _breakpoints[tag] and condition:
+			pdb.set_trace()
 
 
 
-# Data Loaders
-batch_size = 63
-if False:
-	data_dir = "/mnt/raid1/dataset/LabPicsV1/"
 
-	train_dataset	= LabPicsDataset(data_dir, split="Train")
-	train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
-	val_dataset	= LabPicsDataset(data_dir, split="Test")
-	val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
-else:
-	#train_dataset = SPREADDataset(data_dir, split="Train")
-	#train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
-	#val_dataset   = SPREADDataset(data_dir, split="Test")
-	#val_loader    = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
-	data_dir = "/mnt/raid1/dataset/spread"
-	
-	train_dataset	= SpreadDataset(data_dir, split="train")
-	train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
-	
-	val_dataset	= SpreadDataset(data_dir, split="val")
-	val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
-	
-	test_dataset	= SpreadDataset(data_dir, split="test")
-	test_loader	= DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS, drop_last=True, collate_fn=collate_fn)
-	
-	dbgprint(dataloader, LogLevel.INFO, f"Train: {len(train_dataset)} - Val: {len(val_dataset)} - Test: {len(test_dataset)}")
 
-# Load model
-
-sam2_checkpoint = "sam2_hiera_small.pt" # path to model weight
-model_cfg = "sam2_hiera_s.yaml" #  model config
-
-sam2_checkpoint = "sam2_hiera_large.pt"
-model_cfg = "sam2_hiera_l.yaml"
-
-sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda") # load model
-predictor = SAM2ImagePredictor(sam2_model)
-
-# Set training parameters
-
-predictor.model.sam_mask_decoder.train(True) # enable training of mask decoder
-predictor.model.sam_prompt_encoder.train(True) # enable training of prompt encoder
-predictor.model.image_encoder.train(True) # enable training of image encoder: For this to work you need to scan the code for "no_grad" and remove them all
-
-optimizer = torch.optim.AdamW(params=predictor.model.parameters(), lr=1e-5, weight_decay=4e-5)
-scaler    = torch.cuda.amp.GradScaler() # mixed precision
-
-# Training loop
-
-best_loss = float("inf")
 
 
 def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
@@ -309,21 +270,7 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 	dbgprint(predict, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
 	dbgprint(predict, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
-	#train() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
-	#train() 2. - type(image)    = <class 'list'> - len(image)     = 3
-	#train() 3. - type(image[0]) = <class 'numpy.ndarray'> - image[0].shape = (1024, 1024, 3) - image[0].dtype = dtype('uint8')
-	#train() 4. - type(mask[0])  = <class 'numpy.ndarray'> - mask[0].shape  = (1024, 1024) - mask[0].dtype = dtype('uint8')
-	#train() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-
-	#validate() 1. - type(image)    = <class 'list'> - type(mask)     = <class 'list'> - type(input_point) = <class 'torch.Tensor'>
-	#validate() 2. - type(image)    = <class 'list'> - len(image)     = 3
-	#validate() 3. - type(image[0]) = <class 'numpy.ndarray'> - image[0].shape = (1024, 1024, 3) - image[0].dtype = dtype('uint8')
-	#validate() 4. - type(mask[0])  = <class 'numpy.ndarray'> - mask[0].shape  = (1024, 1024) - mask[0].dtype = dtype('uint8')
-	#validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-
 	predictor.set_image_batch(image)				# apply SAM image encoder to the image
-	# predictor.get_image_embedding()
-	# prompt encoding
 
 	mask_input, unnorm_coords, labels, unnorm_box	= predictor._prep_prompts(input_point, input_label, box=box, mask_logits=mask_logits, normalize_coords=normalize_coords)
 	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
@@ -382,58 +329,8 @@ def validate(predictor, val_loader):
             dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
             dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
-            ###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-            ##########            predictor.set_image_batch(image)				# apply SAM image encoder to the image
-            ##########            # predictor.get_image_embedding()
-            ##########            # prompt encoding
-            ##########
-            ##########            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            ##########            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
-            ##########
-            ##########            # mask decoder
-            ##########
-            ##########            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-            ##########            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
-            ##########            print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
-            ##########            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
-            ###########validate() 5. - low_res_masks.shape = torch.Size([3, 3, 256, 256]) - len(predictor._orig_hw) = 3
-            
-            
-            #####            predictor.set_image_batch(image)
-            #####            # predictor.get_image_embedding()
-            #####            # prompt encoding
-            #####            mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(point_coords=input_point, point_labels=torch.ones(input_point.shape[0], 1).cuda(), box=None, mask_logits=None, normalize_coords=True)
-            #####            sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
-            #####
-            #####            # mask decoder
-            #####
-            #####            high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-            #####            low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"],
-            #####                                                                             image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
-            #####                                                                             sparse_prompt_embeddings=sparse_embeddings,
-            #####                                                                             dense_prompt_embeddings=dense_embeddings,
-            #####                                                                             multimask_output=True,
-            #####                                                                             repeat_image=False,
-            #####                                                                             high_res_features=high_res_features)
-            #####
-            #####
-            #####            print(f'validate() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }', flush=True)
-            #####            #set_breakpoint('validate0')
-            #####            #prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[:, 0]
-            #####            prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw)[-1]
-
             prd_masks, prd_scores		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
             loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
-
-            #####            gt_mask = torch.tensor(np.array(mask).astype(np.float32)).cuda()
-            #####            prd_mask = torch.sigmoid(prd_masks)
-
-            #####            seg_loss = (-gt_mask * torch.log(prd_mask + 1e-7) - (1 - gt_mask) * torch.log((1 - prd_mask) + 1e-7)).mean()
-
-            #####            inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
-            #####            iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
-            #####            score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
-            #####            loss = seg_loss + score_loss * 0.05
 
             total_loss += loss.item()
             total_iou += iou.mean().item()
@@ -449,81 +346,177 @@ def validate(predictor, val_loader):
             dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {count}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
 
     return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, count
-    #return total_loss / count, total_iou / count, count, total_score_loss / count, total_seg_loss / count
 
 
-# Training loop
-best_loss = float("inf")
-best_iou  = float("-inf")
 
-for epoch in range(NUM_EPOCHS):  # Example: 100 epochs
-    for itr, (image, mask, input_point) in enumerate(train_loader):
-        with torch.cuda.amp.autocast():							# cast to mix precision
-            # ... (training code remains largely the same, but use data from the loader)
 
-            dbgprint(train, LogLevel.TRACE, f'{type(image) = } {type(mask) = } {type(input_point) = }')
-            dbgprint(train, LogLevel.TRACE, f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
-            input_point = torch.tensor(np.array(input_point)).cuda().float()
-            input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
 
-            if isinstance(image, list):
-                if len(image)==0:
-                    continue							# ignore empty batches
-            if isinstance(mask, list):
-                if len(mask)==0:
-                    continue							# ignore empty batches
-            if isinstance(mask, torch.Tensor):
-                if mask.shape[0]==0:
-                    continue							# ignore empty batches
+if __name__ == "__main__":
+	args		= parse_arguments()
 
-            ### predictor.set_image_batch(image)				# apply SAM image encoder to the image
-            ### # predictor.get_image_embedding()
-            ### # prompt encoding
+	# Example usage of the functions
+	gpu_id			= args.gpu_id
+	num_workers		= args.num_workers
+	num_epochs		= args.num_epochs
+	batch_size		= args.batch_size
+	model_size		= args.model_size
+	dataset_name		= args.dataset_name
+	use_wandb		= args.use_wandb
+	lr			= args.lr
+	wr			= args.wr
+	split			= args.split
+	image_resolution	= args.img_resolution
+	_breakpoints		= {}
 
-            ### mask_input, unnorm_coords, labels, unnorm_box = predictor._prep_prompts(input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            ### sparse_embeddings, dense_embeddings = predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None, masks=None)
+	sam2_checkpoint, model_cfg		= set_model_paths(model_size)
+	train_ratio, val_ratio, test_ratio	= decode_split_ratio(split)
+	width, height				= unpack_resolution(image_resolution)
 
-            ### # mask decoder
+	init_wandb(use_wandb, args, project_name=f"SAM2-{model_size}-{dataset_name}-bs-{batch_size}-lr-{lr}-wr-{wr}-imgsz-{width}x{height}")
+	torch.set_num_threads(num_workers)
 
-            ### high_res_features = [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-            ### low_res_masks, prd_scores, _, _ = predictor.model.sam_mask_decoder(image_embeddings=predictor._features["image_embed"], image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),sparse_prompt_embeddings=sparse_embeddings,dense_prompt_embeddings=dense_embeddings,multimask_output=True,repeat_image=False,high_res_features=high_res_features,)
-            ### print(f'train() 5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
-            ### prd_masks = predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])# Upscale the masks to the original image resolution
+	dbgprint(main, LogLevel.INFO, f"Using the following configuration:")
+	dbgprint(main, LogLevel.INFO, f"==================================")
+	dbgprint(main, LogLevel.INFO, f"Using GPU ID		: {gpu_id}")
+	dbgprint(main, LogLevel.INFO, f"Number of Workers	: {num_workers}")
+	dbgprint(main, LogLevel.INFO, f"Number of Epochs	: {num_epochs}")
+	dbgprint(main, LogLevel.INFO, f"Batch Size		: {batch_size}")
+	dbgprint(main, LogLevel.INFO, f"Model Size		: {model_size}")
+	dbgprint(main, LogLevel.INFO, f"Dataset			: {dataset_name}")
+	dbgprint(main, LogLevel.INFO, f"Use Wandb		: {use_wandb}")
+	dbgprint(main, LogLevel.INFO, f"Learning Rate		: {lr}")
+	dbgprint(main, LogLevel.INFO, f"Weight Regularization	: {wr}")
+	dbgprint(main, LogLevel.INFO, f"Train/Val/Test Ratio	: {train_ratio}/{val_ratio}/{test_ratio}")
+	dbgprint(main, LogLevel.INFO, f"Image Resolution	: {width}x{height}")
+	dbgprint(main, LogLevel.INFO, f"SAM2 Checkpoint		: {sam2_checkpoint}")
+	dbgprint(main, LogLevel.INFO, f"Model Config		: {model_cfg}")
+	dbgprint(main, LogLevel.INFO, f"==================================")
 
-            prd_masks, prd_scores 		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
-            loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
+	# Data Loaders
+	if "labpics" in dataset_name.lower():
+		data_dir	= Path("/mnt/raid1/dataset/LabPicsV1")
+	
+		train_dataset	= LabPicsDataset(data_dir, split="Train")
+		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)  # drop_last handles variable batch sizes
+		val_dataset	= LabPicsDataset(data_dir, split="Test")
+		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
+	elif "spread" in dataset_name.lower():
+		data_dir	= Path("/mnt/raid1/dataset/spread")
+		
+		train_dataset	= SpreadDataset(data_dir,   split="train")
+		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
+		
+		val_dataset	= SpreadDataset(data_dir,   split="val")
+		val_loader	= DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
+		
+		test_dataset	= SpreadDataset(data_dir,   split="test")
+		test_loader	= DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
+		
+		dbgprint(dataloader, LogLevel.INFO, f"Train: {len(train_dataset)} - Val: {len(val_dataset)} - Test: {len(test_dataset)}")
+	
+	# Load model
+	'''	
+	sam2_checkpoint	= "sam2_hiera_small.pt"					# path to model weight
+	model_cfg	= "sam2_hiera_s.yaml"					# model config
+	
+	sam2_checkpoint	= "sam2_hiera_large.pt"
+	model_cfg	= "sam2_hiera_l.yaml"
+	'''	
+	
+	sam2_model	= build_sam2(model_cfg, sam2_checkpoint, device="cuda")	# load model
+	predictor	= SAM2ImagePredictor(sam2_model)
+	
+	# Set training parameters
+	
+	predictor.model.sam_mask_decoder.train(True)				# enable training of mask decoder
+	predictor.model.sam_prompt_encoder.train(True)				# enable training of prompt encoder
+	predictor.model.image_encoder.train(True)				# enable training of image encoder: For this to work you need to scan the code for "no_grad" and remove them all
+	
+	optimizer = torch.optim.AdamW(params=predictor.model.parameters(), lr=1e-5, weight_decay=4e-5)
+	scaler    = torch.cuda.amp.GradScaler() # mixed precision
+	
+	# Training loop
+	
+	best_loss = float("inf")
 
-            # apply back propogation
 
-            predictor.model.zero_grad() # empty gradient
-            scaler.scale(loss).backward()  # Backpropogate
-            scaler.step(optimizer)
-            scaler.update() # Mix precision
 
-            # Display results
 
-            if itr == 0:
-                mean_iou = 0
-            mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
-            dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
-            if itr % 10 == 0:
-                if loss < best_loss:
-                    # save the model
-                    best_loss = loss
-                    model_str = f"{sam2_checkpoint.replace('.pt','')}-training-epoch-{epoch}-step-{itr}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
-                    dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
-                    torch.save(predictor.model.state_dict(), model_str);
 
-    #val_loss, val_iou = validate(predictor, val_loader)
-    #print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
-    #val_loss, val_iou, num_batches = validate(predictor, val_loader)
-    avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
-    dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
-    #dbgprint(main, LogLevel.TRACE, f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}, Validation IOU: {val_iou:.4f}")
 
-    if avg_val_loss < best_loss or avg_val_iou > best_iou:
-        best_loss = avg_val_loss
-        best_iou  = avg_val_iou
-        model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{avg_val_iou:.2f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
-        dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
-        torch.save(predictor.model.state_dict(), model_str);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	# Training loop
+	best_loss = float("inf")
+	best_iou  = float("-inf")
+	
+	for epoch in range(num_epochs):  # Example: 100 epochs
+		for itr, (image, mask, input_point) in enumerate(train_loader):
+			with torch.cuda.amp.autocast():							# cast to mix precision
+				# ... (training code remains largely the same, but use data from the loader)
+	
+				dbgprint(train, LogLevel.TRACE, f'{type(image) = } {type(mask) = } {type(input_point) = }')
+				dbgprint(train, LogLevel.TRACE, f'{len(image)  = } {len(mask)  =  } {len(input_point) = }')
+				input_point = torch.tensor(np.array(input_point)).cuda().float()
+				input_label = torch.ones(input_point.shape[0], 1).cuda().float() # create labels
+	
+				if isinstance(image, list):
+					if len(image)==0:
+						continue							# ignore empty batches
+				if isinstance(mask, list):
+					if len(mask)==0:
+						continue							# ignore empty batches
+				if isinstance(mask, torch.Tensor):
+					if mask.shape[0]==0:
+						continue							# ignore empty batches
+	
+				prd_masks, prd_scores 		= sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True)
+				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(mask, prd_masks, prd_scores, score_loss_weight=0.05)
+	
+				# apply back propogation
+	
+				predictor.model.zero_grad()						# empty gradient
+				scaler.scale(loss).backward()					# Backpropagate
+				scaler.step(optimizer)
+				scaler.update()							# Mix precision
+	
+				# Display results
+	
+				if itr == 0:
+					mean_iou = 0
+	
+				mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
+				dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
+				if itr % 10 == 0:
+					if loss < best_loss:
+						# save the model
+						best_loss = loss
+						model_str = f"{sam2_checkpoint.replace('.pt','')}-training-epoch-{epoch}-step-{itr}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
+						torch.save(predictor.model.state_dict(), model_str);
+	
+		avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
+		dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
+	
+		if avg_val_loss < best_loss or avg_val_iou > best_iou:
+			best_loss = avg_val_loss
+			best_iou  = avg_val_iou
+			model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{avg_val_iou:.2f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
+			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
+			torch.save(predictor.model.state_dict(), model_str);
