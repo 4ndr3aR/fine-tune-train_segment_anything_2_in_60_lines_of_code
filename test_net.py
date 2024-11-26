@@ -44,7 +44,7 @@ def parse_arguments():
 	parser.add_argument('--mask_path',	type=str,		default=r"sample_mask.png",	help='Path to the mask file')
 	parser.add_argument('--dir_path',	type=str,		default=r"",			help='Path to the dataset to be segmented')
 	parser.add_argument('--min_max_size',	type=float,		default=0.05,			help='Minimum and maximum size for segmentation')
-	parser.add_argument('--model',		type=str,		default="best-model.pth",	help='Path to the model checkpoint')
+	parser.add_argument('--model',		type=str,		default=None,			help='Path to the model checkpoint')
 	parser.add_argument('--debug_masks', action='store_true',	default=False,			help='Enable debugging of masks (default: False)')
 
 	# Parse the arguments
