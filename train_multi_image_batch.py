@@ -410,7 +410,7 @@ if __name__ == "__main__":
 	dbgprint(main, LogLevel.INFO, f"==================================")
 	dbgprint(main, LogLevel.INFO, f"Using GPU ID		: {gpu_id}")
 	dbgprint(main, LogLevel.INFO, f"Number of Workers	: {num_workers}")
-	dbgprint(main, LogLevel.INFO, f"Number of Epochs	: {num_epochs}")
+	dbgprint(main, LogLevel.INFO, f"Number of Epochs		: {num_epochs}")
 	dbgprint(main, LogLevel.INFO, f"Batch Size		: {batch_size}")
 	dbgprint(main, LogLevel.INFO, f"Model Size		: {model_size}")
 	dbgprint(main, LogLevel.INFO, f"Dataset			: {dataset_name}")
@@ -418,7 +418,7 @@ if __name__ == "__main__":
 	dbgprint(main, LogLevel.INFO, f"Learning Rate		: {lr}")
 	dbgprint(main, LogLevel.INFO, f"Weight Regularization	: {wr}")
 	dbgprint(main, LogLevel.INFO, f"Train/Val/Test Ratio	: {train_ratio}/{val_ratio}/{test_ratio}")
-	dbgprint(main, LogLevel.INFO, f"Image Resolution	: {width}x{height}")
+	dbgprint(main, LogLevel.INFO, f"Image Resolution		: {width}x{height}")
 	dbgprint(main, LogLevel.INFO, f"SAM2 Checkpoint		: {sam2_checkpoint}")
 	dbgprint(main, LogLevel.INFO, f"Model Config		: {model_cfg}")
 	dbgprint(main, LogLevel.INFO, f"==================================")
@@ -548,7 +548,7 @@ if __name__ == "__main__":
 					if loss < best_loss:
 						# save the model
 						best_loss = loss
-						model_str = f"{sam2_checkpoint.replace('.pt','')}-training-epoch-{epoch}-step-{itr}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+						model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-iou-{mean_iou:.2f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
 						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
 						torch.save(predictor.model.state_dict(), model_str);
 	
@@ -563,6 +563,6 @@ if __name__ == "__main__":
 		if avg_val_loss < best_loss or avg_val_iou > best_iou:
 			best_loss = avg_val_loss
 			best_iou  = avg_val_iou
-			model_str = f"{sam2_checkpoint.replace('.pt','')}-validation-epoch-{epoch}-iou-{avg_val_iou:.2f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
+			model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-validation-epoch-{epoch}-iou-{avg_val_iou:.2f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
 			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
 			torch.save(predictor.model.state_dict(), model_str);
