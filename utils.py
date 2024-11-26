@@ -1,3 +1,8 @@
+import torch
+
+from sam2.build_sam import build_sam2
+from sam2.sam2_image_predictor import SAM2ImagePredictor
+
 def set_model_paths(model_size):
     """Sets the checkpoint and configuration file paths based on the model size."""
     if model_size == 'tiny':

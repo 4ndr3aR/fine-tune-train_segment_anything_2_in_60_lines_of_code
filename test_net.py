@@ -18,9 +18,6 @@ from PIL import Image
 
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
-
 from dbgprint import dbgprint
 from dbgprint import *
 
@@ -36,6 +33,7 @@ def parse_arguments():
 	Usage:
 
 	./test_net.py --model models-LabPicsV1-bs63-20241115/valid/sam2_hiera_small-validation-epoch-264-iou-0.71-best-loss-0.05-segloss-0.05-scoreloss-0.16.pth --dir /tmp/labpics
+	./test_net.py --model_size large --model sam2_hiera_large-labpic-validation-epoch-233-iou-0.72-best-loss-0.05-segloss-0.04-scoreloss-0.15.pth --dir /tmp/labpics
 
 	or
 
@@ -46,6 +44,7 @@ def parse_arguments():
 	parser = argparse.ArgumentParser(description='Segmentation model arguments')
 
 	# Add arguments
+	parser.add_argument("--model_size",	type=str,		default='small',		help="Model size (default: small)", choices=['tiny', 'small', 'base', 'large'])
 	parser.add_argument('--image_path',	type=str,		default=r"sample_image.jpg",	help='Path to the image file')
 	parser.add_argument('--mask_path',	type=str,		default=r"sample_mask.png",	help='Path to the mask file')
 	parser.add_argument('--dir_path',	type=str,		default=r"",			help='Path to the dataset to be segmented')
@@ -58,6 +57,16 @@ def parse_arguments():
 
 	return args
 
+def cv2_waitkey_wrapper():
+	k = cv2.waitKey(0) & 0xFF
+	#print(k)
+	if k == 27:
+		cv2.destroyAllWindows()
+		return 2
+	else:
+		return 1
+
+
 def get_image_mode(fname):
 	img = Image.open(fname)
 	return img.mode
@@ -66,7 +75,18 @@ def is_grayscale(fname):
 	mode = get_image_mode(fname)
 	return mode == 'L'
 def is_grayscale_img(img):
-	return img.shape[2] == 1 or len(img.shape) == 2
+	return len(img.shape) == 2 or img.shape[2] == 1
+
+def to_rgb(mask):
+	if is_grayscale_img(mask):
+		rgb_mask	= np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+		rgb_mask[:,:,0]	= copy.deepcopy(mask)
+		rgb_mask[:,:,1]	= copy.deepcopy(mask)
+		rgb_mask[:,:,2]	= copy.deepcopy(mask)
+		dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
+	else:
+		rgb_mask	= mask
+	return rgb_mask
 
 def replace_color(img, old_color, new_color):
 	boolmask = np.all(img == old_color, axis=-1)
@@ -118,25 +138,18 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	mask	= cv2.imread(mask_path, flag)				# mask of the region we want to segment
 	dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 
-	if is_grayscale(mask_path):
-		rgb_mask	= np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
-		rgb_mask[:,:,0]	= copy.deepcopy(mask)
-		rgb_mask[:,:,1]	= copy.deepcopy(mask)
-		rgb_mask[:,:,2]	= copy.deepcopy(mask)
-		dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
-	else:
-		rgb_mask	= mask
+	rgb_mask = to_rgb(mask)
 
-	classes, freqs	= get_unique_classes(rgb_mask, is_grayscale_img(rgb_mask))
-
-	rgb_mask = replace_class_colors(rgb_mask, classes, freqs=freqs)
+	classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
+	rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
 
 	if debug_masks:
 		submask = mask[280:330, 280:330]
 		dbgprint(dataloader, LogLevel.TRACE, f'submask shape: {submask.shape}')
 		dbgprint(dataloader, LogLevel.TRACE, f'submask      : {submask}')
 		cv2.imshow(f"submask", submask)
-		cv2.waitKey()
+		#cv2.waitKey()
+		cv2_waitkey_wrapper()
 
 	dbgprint(dataloader, LogLevel.TRACE, f"Image shape	: {img.shape}")
 	dbgprint(dataloader, LogLevel.TRACE, f"Mask  shape	: {mask.shape}")
@@ -224,27 +237,36 @@ def blend_images(image, seg_map, rgb_mask):
 	blended = (rgb_mask/2+image/2)[...,::-1]  # read image as rgb
 	return blended
 
-def save_images(image, mask, rgb_mask, blended, image_path, mask_path):
+def save_images(image, mask, rgb_mask, blended, seg_map, image_path, mask_path):
 	# save and display
 	dbgprint(dataloader, LogLevel.INFO, f"Saving images	: {image_path[:-4]}-annotation.png and {image_path[:-4]}-blended.png")
 	cv2.imwrite(f"{image_path[:-4]}-annotation.png",	rgb_mask)
+	cv2.imwrite(f"{image_path[:-4]}-segmentation.png",	seg_map)
 	cv2.imwrite(f"{image_path[:-4]}-blended.png",		blended.astype(np.uint8))
+	rgb_seg_map	= to_rgb(seg_map)
+	classes, freqs	= get_unique_classes  (rgb_seg_map, is_grayscale_img(rgb_seg_map))
+	rgb_seg_map	= replace_class_colors(rgb_seg_map, classes, freqs=[])
+	cv2.imwrite(f"{image_path[:-4]}-rgb-segmentation.png",	rgb_seg_map)
 	
 	cv2.imshow(f"{image_path[:-4]}-original-mask",		mask[...,::-1])
 	cv2.imshow(f"{image_path[:-4]}-annotation",		rgb_mask[...,::-1])
 	cv2.imshow(f"{image_path[:-4]}-blended",		blended.astype(np.uint8))
+	cv2.imshow(f"{image_path[:-4]}-segmentation",		seg_map)
+	cv2.imshow(f"{image_path[:-4]}-rgb-segmentation",	rgb_seg_map)
 	cv2.imshow(f"{image_path[:-4]}-image",			image[...,::-1])
-	cv2.waitKey()
+	#cv2.waitKey()
+	cv2_waitkey_wrapper()
 
-def load_images(image_files, mask_files):					# serial version
+def load_images(image_files, mask_files, debug_masks=False):			# serial version
 	for imgfn, mskfn in zip(image_files, mask_files):
 		dbgprint(dataloader, LogLevel.INFO, f"Loading images	: {Path(imgfn).name} - {Path(mskfn).name}")
 		image, mask, rgb_mask = read_image(imgfn, mskfn)
 		if debug_masks:
 			cv2.imshow(f"image", image)
 			cv2.imshow(f"mask", mask[...,::-1])
-			cv2.waitKey()
-		input_points	= get_points(mask, num_samples)	# read image and sample points
+			#cv2.waitKey()
+			cv2_waitkey_wrapper()
+		input_points	= get_points(mask, num_samples)			# read image and sample points
 		dataset.append((image, mask, rgb_mask, input_points, imgfn, mskfn))
 	return dataset
 
@@ -257,9 +279,10 @@ def load_and_process_image(imgfn, mskfn, num_samples, debug_masks=False):	# para
 	if debug_masks:
 		cv2.imshow(f"image", image)
 		cv2.imshow(f"mask", mask[...,::-1])
-		cv2.waitKey()
+		#cv2.waitKey()
+		cv2_waitkey_wrapper()
 
-	input_points = get_points(mask, num_samples)
+	input_points = get_points(rgb_mask, num_samples)
 	return (image, mask, rgb_mask, input_points, imgfn, mskfn)
 
 def parallelize_image_processing(image_files, mask_files, num_samples, debug_masks=False):
@@ -276,6 +299,7 @@ def parallelize_image_processing(image_files, mask_files, num_samples, debug_mas
 
 if __name__ == "__main__":
 	args		= parse_arguments()
+	model_size	= args.model_size
 	image_path	= args.image_path
 	mask_path	= args.mask_path
 	min_max_size	= args.min_max_size
@@ -320,21 +344,21 @@ if __name__ == "__main__":
 	if parallelize_image_loading:
 		dataset = parallelize_image_processing(image_files, mask_files, num_samples, debug_masks)	# parallel version
 	else:
-		dataset = load_images(image_files, mask_files)							# serial version
+		dataset = load_images(image_files, mask_files, debug_masks)					# serial version
 
 	dbgprint(dataloader, LogLevel.INFO, f"Min Max Size	: {min_max_size}")
 	dbgprint(dataloader, LogLevel.INFO, f"Model Checkpoint	: {checkpoint}")
-	predictor = create_model(arch="small", checkpoint=checkpoint)		# create arch and load model
+	predictor = create_model(model_size=model_size, checkpoint=checkpoint)					# create arch and load model
 
 	for image, mask, rgb_mask, input_points, image_path, mask_path in dataset:
 		dbgprint(dataloader, LogLevel.INFO, f"Image Path	: {image_path}")
 		dbgprint(dataloader, LogLevel.INFO, f"Mask Path	: {mask_path}")
 
-		masks, scores, logits	= predict(image, input_points)					# sort the maps by "occupancy score"
-		seg_map			= sort_masks(masks, scores, min_max_size, debug=debug_masks)	# fuse the highest scoring maps into a segmentation map
-		blended			= blend_images(image, seg_map, rgb_mask)			# blend original image with the segmentation map
+		masks, scores, logits	= predict(image, input_points)						# sort the maps by "occupancy score"
+		seg_map			= sort_masks(masks, scores, min_max_size, debug=debug_masks)		# fuse the highest scoring maps into a segmentation map
+		blended			= blend_images(image, seg_map, rgb_mask)				# blend original image with the segmentation map
 
 		rgb_mask		= draw_points_on_image(rgb_mask, input_points)
 
-		save_images(image, mask, rgb_mask, blended, image_path, mask_path)
+		save_images(image, mask, rgb_mask, blended, seg_map, image_path, mask_path)
 

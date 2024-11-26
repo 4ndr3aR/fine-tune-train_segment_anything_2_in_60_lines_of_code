@@ -38,9 +38,6 @@ import cv2
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
-
 from dbgprint import dbgprint
 from dbgprint import *
 
