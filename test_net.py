@@ -26,6 +26,8 @@ from dbgprint import *
 
 from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_idx
 
+from utils import create_model
+
 # use bfloat16 for the entire script (memory efficient)
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
 
@@ -55,24 +57,6 @@ def parse_arguments():
 	args = parser.parse_args()
 
 	return args
-
-def create_model(arch="small", checkpoint="model.pth"):
-	# Load model you need to have pretrained model already made
-	if arch=="small":
-		sam2_checkpoint = "sam2_hiera_small.pt"
-		model_cfg = "sam2_hiera_s.yaml"
-	elif arch=="large":
-		sam2_checkpoint = "sam2_hiera_large.pt"
-		model_cfg = "sam2_hiera_l.yaml"
-	else:
-		raise ValueError("Unsupported architecture: {}".format(arch))
-
-	sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
-	
-	# Build net and load weights
-	predictor = SAM2ImagePredictor(sam2_model)
-	predictor.model.load_state_dict(torch.load(checkpoint))
-	return predictor
 
 def get_image_mode(fname):
 	img = Image.open(fname)
@@ -120,6 +104,7 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	else:
 		flag = cv2.IMREAD_COLOR
 		dbgprint(dataloader, LogLevel.INFO, f"Reading color img	: {image_path}")
+
 	img	= cv2.imread(image_path, flag)[...,::-1]		# read image as rgb
 	dbgprint(dataloader, LogLevel.INFO, f"Image shape	: {img.shape}")
 
@@ -129,18 +114,21 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	else:
 		flag = cv2.IMREAD_COLOR
 		dbgprint(dataloader, LogLevel.INFO, f"Reading color mask: {mask_path}")
+
 	mask	= cv2.imread(mask_path, flag)				# mask of the region we want to segment
 	dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	: {mask.shape}")
 
-	rgb_mask	= np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
-	rgb_mask[:,:,0]	= copy.deepcopy(mask)
-	rgb_mask[:,:,1]	= copy.deepcopy(mask)
-	rgb_mask[:,:,2]	= copy.deepcopy(mask)
-	dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
+	if is_grayscale(mask_path):
+		rgb_mask	= np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+		rgb_mask[:,:,0]	= copy.deepcopy(mask)
+		rgb_mask[:,:,1]	= copy.deepcopy(mask)
+		rgb_mask[:,:,2]	= copy.deepcopy(mask)
+		dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
+	else:
+		rgb_mask	= mask
+
 	classes, freqs	= get_unique_classes(rgb_mask, is_grayscale_img(rgb_mask))
 
-	#replace_color(mask, [0, 0, 0], [64, 64, 64])
-	#rgb_mask = mask.deepcopy()
 	rgb_mask = replace_class_colors(rgb_mask, classes, freqs=freqs)
 
 	if debug_masks:
