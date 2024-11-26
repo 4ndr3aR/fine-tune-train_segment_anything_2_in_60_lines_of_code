@@ -41,7 +41,7 @@ from sklearn.model_selection import train_test_split
 from dbgprint import dbgprint
 from dbgprint import *
 
-from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors
+from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points
 
 def unpack_resolution(resolution_str):
     """Unpacks the resolution string into width and height."""
@@ -154,18 +154,23 @@ class SpreadDataset(Dataset):
             dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {instance_dir}')
             if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
                 continue
-            for name in os.listdir(rgb_dir):
+            for idx, name in enumerate(os.listdir(rgb_dir)):
+                if idx % 1000 == 0:
+                    print('.', end='', flush=True)
                 if name.endswith(".png"):
                     self.data.append({
                         "image": os.path.join(rgb_dir, name),
                         "annotation": os.path.join(instance_dir, name)
                     })
 
-        dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
+        #dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
+        dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(self.data)} images")
 
         # Create splits
         train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
         train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
+
+        dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")			# we already print this later
         
         if split == "train":
             self.data = train_data
@@ -181,12 +186,32 @@ class SpreadDataset(Dataset):
         ent = self.data[idx]
         dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["annotation"]}')
         Img = cv2.imread(ent["image"])[..., ::-1]  # Convert BGR to RGB
-        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
+        #ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
+        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_GRAYSCALE)  # Read grayscale
 
         # Resize images and masks to the same resolution
         Img = cv2.resize(Img, (960, 540))
         ann_map = cv2.resize(ann_map, (960, 540), interpolation=cv2.INTER_NEAREST)
 
+        num_samples = 30
+
+        '''
+        rgb_mask	= to_rgb(ann_map)
+
+        classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
+        rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
+        '''
+        input_points	= get_points(ann_map, num_samples)
+        input_points	= np.ravel(input_points)
+
+        #dbgprint(dataloader, LogLevel.INFO, f"Image shape      : {Img.shape}")
+        #dbgprint(dataloader, LogLevel.INFO, f"Mask  shape      : {ann_map.shape}")
+        #dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape   : {rgb_mask.shape}")
+        dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+        dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
+
+
+        '''
         # Process the annotation map
         mat_map = ann_map[:, :, 0]
         ves_map = ann_map[:, :, 2]
@@ -204,6 +229,9 @@ class SpreadDataset(Dataset):
             point = [[0, 0]]  # Provide a default point
 
         return Img, mask, point
+        '''
+
+        return Img, ann_map, input_points
 
 
 
@@ -248,10 +276,10 @@ def set_breakpoint(tag, condition=True):
 
 
 def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
-	dbgprint(predict, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-	dbgprint(predict, LogLevel.TRACE, f'2. - {type(image)    = } - {len(image)     = }')
-	dbgprint(predict, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-	dbgprint(predict, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+	dbgprint(predict, LogLevel.INFO, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
+	dbgprint(predict, LogLevel.INFO, f'2. - {type(image)    = } - {len(image)     = }')
+	dbgprint(predict, LogLevel.INFO, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
+	dbgprint(predict, LogLevel.INFO, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
 
 	predictor.set_image_batch(image)				# apply SAM image encoder to the image
 

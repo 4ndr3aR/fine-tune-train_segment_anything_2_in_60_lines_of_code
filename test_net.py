@@ -18,7 +18,7 @@ from dbgprint import *
 
 from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_idx
 
-from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors
+from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points
 
 # use bfloat16 for the entire script (memory efficient)
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -96,15 +96,6 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	rgb_mask = cv2.resize(rgb_mask,	(int(rgb_mask.shape[1]	* r), int(mask.shape[0]	* r)), interpolation=cv2.INTER_NEAREST)
 
 	return img, mask, rgb_mask
-
-def get_points(mask, num_points): # Sample points inside the input mask
-	points=[]
-	for i in range(num_points):
-		coords = np.argwhere(mask > 0)
-		dbgprint(dataloader, LogLevel.TRACE, f"Coords		: {coords.shape}")
-		yx = np.array(coords[np.random.randint(len(coords))])
-		points.append([[yx[1], yx[0]]])
-	return np.array(points)
 
 def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-1):
 	"""

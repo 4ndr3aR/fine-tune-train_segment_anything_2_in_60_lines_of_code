@@ -108,3 +108,12 @@ def replace_class_colors(rgb_mask, classes, freqs=[]):
 		replace_color(rgb_mask, cls, new_color)
 	return rgb_mask
 
+def get_points(mask, num_points): # Sample points inside the input mask
+	points=[]
+	for i in range(num_points):
+		coords = np.argwhere(mask > 0)
+		dbgprint(dataloader, LogLevel.TRACE, f"Coords		: {coords.shape}")
+		yx = np.array(coords[np.random.randint(len(coords))])
+		points.append([[yx[1], yx[0]]])
+	return np.array(points)
+
