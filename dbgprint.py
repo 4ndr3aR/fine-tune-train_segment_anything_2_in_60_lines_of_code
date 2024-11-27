@@ -38,6 +38,7 @@ class Subsystem(Enum):
 	DATALOADER	= 8
 	PREDICT		= 9
 	MAIN		= 10
+	LOSS		= 11
 	WIDEST____	= 256			# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)
 
 # Loose global variables for subsystems (for convenient keyword access)
@@ -51,6 +52,7 @@ test		= Subsystem.TEST
 dataloader	= Subsystem.DATALOADER
 predict		= Subsystem.PREDICT
 main		= Subsystem.MAIN
+loss		= Subsystem.LOSS
 
 class Color(Enum):
 	DARK_GRAY	= 240
@@ -96,6 +98,7 @@ subsystem_colors = {
 	Subsystem.DATALOADER:	Color.PINK,
 	Subsystem.PREDICT:	Color.BABY_BLUE,
 	Subsystem.MAIN:		Color.MINT,
+	Subsystem.LOSS:		Color.YELLOW,
 }
 
 
@@ -155,6 +158,7 @@ enabled_subsystems = {
 	Subsystem.DATALOADER:	LogLevel.INFO,
 	Subsystem.PREDICT:	LogLevel.INFO,
 	Subsystem.MAIN:		LogLevel.TRACE,
+	Subsystem.LOSS:		LogLevel.TRACE,
 	Subsystem.WIDEST____:	LogLevel.FATAL,		# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)
 	# Add more subsystems and their minimum log levels here
 }

@@ -12,6 +12,9 @@ import argparse
 
 #> for dir in `ls -d *` ; do flist=`ls $dir/rgb/*.png` ; for fn in $flist ; do bn=`basename $fn` ; echo $bn ; ll $dir/instance_segmentation/$bn $dir/semantic_segmentation/$bn ; done ; done &> /tmp/spread-mini-check.txt
 
+
+# ./train_multi_image_batch.py --gpu_id 0 --dataset_name spread --batch_size 2 --model_size small --lr 1e-3 --num_workers 1
+
 def parse_arguments():
 	parser = argparse.ArgumentParser(description="Configuration for your script")
 
@@ -42,6 +45,8 @@ print(f'Loading numpy...')
 import numpy as np
 print(f'Loading torch...')
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 import pdb
 print(f'Loading cv2...')
@@ -57,7 +62,135 @@ from dbgprint import dbgprint
 from dbgprint import *
 
 print(f'Loading utils functions...')
-from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, get_points_color, draw_points_on_image, replace_bg_color
+from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, extract_points_outside_region, draw_points_on_image, replace_bg_color
+
+class InstanceSegmentationLoss(nn.Module):
+	def __init__(self, 
+			 alpha=1.0,   # Cross-Entropy loss weight
+			 beta =1.0,   # Dice loss weight
+			 gamma=1.0,   # Focal loss weight
+			 delta=1.0):  # IoU loss weight
+		super(InstanceSegmentationLoss, self).__init__()
+		self.alpha = alpha
+		self.beta  = beta
+		self.gamma = gamma
+		self.delta = delta
+		
+	def cross_entropy_loss(self, pred, target):
+		"""
+		Standard Cross-Entropy Loss
+		"""
+		return F.cross_entropy(pred, target, reduction='mean')
+	
+	def dice_loss(self, pred, target):
+		"""
+		Dice Loss for segmentation
+		"""
+		pred = torch.softmax(pred, dim=1)
+		target_one_hot = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2).float()
+		
+		intersection = torch.sum(pred * target_one_hot, dim=(2, 3))
+		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target_one_hot, dim=(2, 3))
+		
+		dice = (2 * intersection + 1e-7) / (union + 1e-7)
+		return 1 - dice.mean()
+	
+	def focal_loss(self, pred, target, alpha=0.25, gamma=2.0):
+		"""
+		Focal Loss to handle class imbalance
+		"""
+		ce_loss = F.cross_entropy(pred, target, reduction='none')
+		pt = torch.exp(-ce_loss)
+		focal_loss = (alpha * (1-pt)**gamma * ce_loss).mean()
+		return focal_loss
+	
+	def iou_loss(self, pred, target):
+		"""
+		Intersection over Union (IoU) Loss
+		"""
+		pred = torch.softmax(pred, dim=1)
+		target_one_hot = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2).float()
+		
+		intersection = torch.sum(pred * target_one_hot, dim=(2, 3))
+		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target_one_hot, dim=(2, 3)) - intersection
+		
+		iou = (intersection + 1e-7) / (union + 1e-7)
+		return 1 - iou.mean()
+	
+	def forward(self, pred, target):
+		"""
+		Combine multiple loss components
+		
+		Args:
+		- pred: Predicted segmentation logits (B, C, H, W)
+		- target: Ground truth segmentation mask (B, H, W)
+		"""
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - {type(pred) = }, {type(target) = }')
+		if isinstance(pred, torch.Tensor) or isinstance(pred, np.ndarray):
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred.shape: {pred.shape}')
+		elif isinstance(pred, list):
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred len: {len(pred)}')
+		else:
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred: {pred}')
+	
+		if isinstance(target, torch.Tensor) or isinstance(target, np.ndarray):
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape: {target.shape}')
+		elif isinstance(target, list):
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target len: {len(target)}')
+		else:
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target: {target}')
+
+		if isinstance(target, list):
+			target = torch.stack([torch.tensor(target[i]) for i in range(len(target))], dim=0).reshape(pred.shape)
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape: {target.shape}')
+
+		# Compute individual loss components
+		ce	= self.cross_entropy_loss(pred, target.float().cuda())
+		dice	= self.dice_loss	 (pred, target.long().cuda())
+		focal	= self.focal_loss	 (pred, target)
+		iou	= self.iou_loss		 (pred, target)
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - ce: {ce}, dice: {dice}, focal: {focal}, iou: {iou}')
+		
+		# Weighted combination of losses
+		total_loss = (
+			self.alpha	* ce	+ 
+			self.beta	* dice	+ 
+			self.gamma	* focal	+ 
+			self.delta	* iou
+		)
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - total_loss: {total_loss}')
+		
+		return total_loss, ce, dice, focal, iou
+
+# Example usage
+def loss_example_usage():
+    # Assuming a 5-class segmentation problem
+    batch_size, num_classes, height, width = 4, 5, 256, 256
+    
+    # Random prediction and target
+    pred = torch.randn(batch_size, num_classes, height, width)
+    target = torch.randint(0, num_classes, (batch_size, height, width))
+    
+    # Initialize loss with custom weights
+    loss_fn = InstanceSegmentationLoss(
+        alpha=1.0,   # Cross-Entropy weight
+        beta=0.5,    # Dice loss weight
+        gamma=0.75,  # Focal loss weight
+        delta=0.25   # IoU loss weight
+    )
+    
+    # Compute total loss
+    total_loss = loss_fn(pred, target)
+    print(f"Total Loss: {total_loss.item()}")
+
+# Uncomment to run example
+# loss_example_usage()
+
+
+
 
 def unpack_resolution(resolution_str):
     """Unpacks the resolution string into width and height."""
@@ -143,27 +276,38 @@ class LabPicsDataset(Dataset):
         return Img, mask, point
 
 def collate_fn(data):
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 1. - {type(data)    = } {len(data)    = }')
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 2. - {type(data[0]) = } {len(data[0]) = }')
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 3. - {type(data[1]) = } {len(data[1]) = }')
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 4. - {type(data[2]) = } {len(data[2]) = }')
-    imgs, masks, points = zip(*data)
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 5. - {type(imgs)    = } {len(imgs)    = }')
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 6. - {type(masks)   = } {len(masks)   = }')
-    dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 7. - {type(points)  = } {len(points)  = }')
-    return list(imgs), list(masks), list(points)
+	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 1. - {type(data)	= }	{len(data)	= }')
+	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 2. - {type(data[0])	= }	{len(data[0])	= }')
+	if len(data) > 1:
+		dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 3. - {type(data[1])	= }	{len(data[1])	= }')
+	if len(data) > 2:
+		dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 4. - {type(data[2])	= }	{len(data[2])	= }')
+	imgs, masks, points = zip(*data)
+	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 5. - {type(imgs)	= }	{len(imgs)	= }')
+	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 6. - {type(masks)	= }	{len(masks)	= }')
+	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 7. - {type(points)	= }	{len(points)	= }')
+	return list(imgs), list(masks), list(points)
 
 class SpreadDataset(Dataset):
+	_data = None					# The whole dataset (filenames, imgs, seg. masks, instance seg. masks)
 	def __init__(self, data_dir, width=1024, height=1024, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+		dbgprint(dataloader, LogLevel.INFO, f'SpreadDataset() - {data_dir} - {width} - {height} - {split} - {train_ratio} - {val_ratio} - {test_ratio}')
+
 		self.data_dir				= data_dir
 		self.split				= split
 		self.width				= width
 		self.height				= height
 		self.debug_instance_segmentation_masks	= False
 		self.debug_input_points			= False
-		
+
+		if SpreadDataset._data is None:
+			SpreadDataset._data = self._load_data(data_dir)
+
+		self.data = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
+
+	def _load_data(self, data_dir):
 		# Collect all data entries
-		self.data = []
+		data = []
 		for class_dir in os.listdir(data_dir):
 			dbgprint(dataloader, LogLevel.TRACE, f'Reading directory: {class_dir}')
 			if not os.path.isdir(os.path.join(data_dir, class_dir)):
@@ -191,30 +335,34 @@ class SpreadDataset(Dataset):
 					im_fn    = os.path.join(rgb_dir, name)
 					imask_fn = os.path.join(instance_dir, name)
 					smask_fn = os.path.join(segmentation_dir, name)
-					self.data.append({
+					data.append({
 						"image_fn"	 : im_fn,
 						"instance_fn"	 : imask_fn,
 						"segmentation_fn": smask_fn,
-						"image"		 : cv2.imread(im_fn, cv2.IMREAD_UNCHANGED)[..., ::-1],		# RGB plz
+						"image"		 : cv2.imread(im_fn)[..., ::-1],					# RGB instead of BGRA plz
 						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1],		# RGB plz
 						"segmentation"	 : None,	# TODO
 					})
+		print(' done!', flush=True)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
-		dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(self.data)} images")
+		dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(data)} images")
 
+		return data
+
+	def _split_data(self, data, split, train_ratio, val_ratio, test_ratio):
 		# Create splits
-		train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
+		train_data, test_data = train_test_split(data,  test_size=test_ratio, random_state=42)
 		train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
 
 		dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")			# we already print this later
 		
 		if split == "train":
-			self.data = train_data
+			return train_data
 		elif split == "val":
-			self.data = val_data
+			return val_data
 		elif split == "test":
-			self.data = test_data
+			return test_data
 
 	def __len__(self):
 		return len(self.data)
@@ -224,6 +372,7 @@ class SpreadDataset(Dataset):
 		dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["instance"]} - {ent["segmentation"]}')
 		#img	= cv2.imread(ent["image"])[..., ::-1]					# Convert BGR to RGB
 		img	= ent["image"]
+		print(f"------------------- Image shape: {img.shape}")
 		if img is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading image: {ent["image"]}')
 		#ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)			# Read as is
@@ -237,6 +386,7 @@ class SpreadDataset(Dataset):
 
 		# Resize images and masks to the same resolution
 		img	= cv2.resize(img,	(self.width, self.height))
+		print(f"------------------- Resized image shape: {img.shape}")
 		imask	= cv2.resize(imask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 		#smask	= cv2.resize(smask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 
@@ -252,7 +402,8 @@ class SpreadDataset(Dataset):
 		#cv2.waitKey()
 
 
-		num_samples = 30
+		#num_samples = 30
+		num_samples = 1
 
 		'''
 		rgb_mask	= to_rgb(ann_map)
@@ -260,22 +411,31 @@ class SpreadDataset(Dataset):
 		classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
 		rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
 		'''
+
+		if self.debug_instance_segmentation_masks:
+			### TODO: to debug using always the same image
+			imask	= cv2.imread('/tmp/ramdrive/spread-mini/downtown-west/instance_segmentation/Tree10_1721274064.png', cv2.IMREAD_UNCHANGED)
+
 		#input_points	= get_points(imask, num_samples)
-		input_points	= get_points_color(imask, num_samples, bg_color=[255, 255, 255])
+		#input_points	= get_points_color(imask, num_samples, bg_color=[255, 255, 255])
+		input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
+		if isinstance(input_points, np.ndarray) or isinstance(input_points, torch.Tensor):
+			dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+		if isinstance(input_points, list):
+			dbgprint(dataloader, LogLevel.INFO, f"Input points len  : {len(input_points)}")
+		dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
 
 		if self.debug_input_points or True:
-			imask= draw_points_on_image(imask, input_points)
+			imask	= draw_points_on_image(imask, input_points)
 			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
 			outfn	= Path('/tmp/spread-out-tmp') / str(Path(ent["image_fn"]).name[:-4]+'points.jpg')
 			dbgprint(dataloader, LogLevel.INFO, f'Writing mask with points: {outfn}')
 			cv2.imwrite(outfn, imask)
-		input_points	= np.ravel(input_points)
+		#input_points	= np.ravel(input_points)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Image shape	  : {Img.shape}")
 		#dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	  : {ann_map.shape}")
 		#dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape   : {rgb_mask.shape}")
-		dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
-		dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
 
 
 		'''
@@ -537,7 +697,8 @@ if __name__ == "__main__":
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
 		#data_dir	= Path("/mnt/raid1/dataset/spread")
-		data_dir	= Path("/tmp/ramdrive/spread-mini")
+		#data_dir	= Path("/tmp/ramdrive/spread-mini")
+		data_dir	= Path("/tmp/ramdrive/spread-femto")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train")
 		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
@@ -605,35 +766,41 @@ if __name__ == "__main__":
 					if masks.shape[0]==0:
 						continue					# ignore empty batches
 	
-				pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
-				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+				pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
+										mask_logits=None, normalize_coords=True)
+
+				loss, seg_loss, score_loss, iou	= None, None, None, None
+				loss, ce, dice, focal, iou	= None, None, None, None, None
+				if 'labpic' in dataset_name:
+					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+				elif 'spread' in dataset_name:
+					loss_fn = InstanceSegmentationLoss(
+						alpha=0.5,   # Cross-Entropy weight
+						beta =1.0,   # Dice loss weight
+						gamma=1.0,   # Focal loss weight
+						delta=0.25   # IoU loss weight
+					)
+					loss, ce, dice, focal, iou = loss_fn(pred_masks, masks)
+				else:
+					raise Exception(f"Unknown dataset: {dataset_name}")
 
 				if use_wandb:
-					wandb.log({"loss": loss, "seg_loss": seg_loss, "score_loss": score_loss, "iou": iou.mean().item(), "mean_iou": mean_iou, "epoch": epoch, "itr": itr, "best_iou": best_iou, "best_loss": best_loss})
+					wandb.log({
+							"loss": loss, "best_loss": best_loss,
+							"iou": iou.mean().item(), "mean_iou": mean_iou, "best_iou": best_iou,
+							"epoch": epoch, "itr": itr,
+						})
+					if 'labpic' in dataset_name:
+						wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+					elif 'spread' in dataset_name:
+						wandb.log({"ce": ce, "dice": dice, "focal": focal})
+					else:
+						raise Exception(f"Unknown dataset: {dataset_name}")
 					if itr == 0:
 						#wandb_images = wandb.Image(images, caption="Validation 1st batch")
 						#wandb.log({"examples": images})
 						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
 						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
-						'''
-						table = wandb.Table(columns=["Image/Pred/GT"])
-		
-						class_labels = {1: "class1", 2: "class2"}
-						for img, msk, pred_mask, pred_score in zip(images, masks, pred_masks, pred_scores):
-							gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).detach().cpu().numpy()
-							prd_msk  = torch.sigmoid(pred_mask[:, 0]).detach().cpu().numpy()
-							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'7. - {gt_msk.shape = } - {pred_mask.shape = } - {pred_score.shape = }')
-							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'8. - {gt_msk = }')
-							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'9. - {prd_msk = }')
-							dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'0. - {pred_score = }')
-		
-							mask_img = wandb.Image(img, masks={
-												"prediction":	{"mask_data": prd_msk, "class_labels": class_labels},
-												"ground_truth":	{"mask_data": gt_msk,  "class_labels": class_labels}
-											})
-							table.add_data(img)#, pred_score[:, 0])
-						wandb.log({"Table": table})
-						'''
 						wandb_log_masked_images(images, masks, pred_masks, pred_scores)
 	
 				# apply back propogation
@@ -646,12 +813,24 @@ if __name__ == "__main__":
 				# Display results
 	
 				mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
-				dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f} - best_loss: {best_loss:.2f}")
+				if 'labpic' in dataset_name:
+					extra_loss = f'seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f}'
+				elif 'spread' in dataset_name:
+					extra_loss = f'ce: {ce:.2f} - dice: {dice:.2f} - focal: {focal:.2f}'
+				else:
+					raise Exception(f"Unknown dataset: {dataset_name}")
+				dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - {extra_loss} - best_loss: {best_loss:.2f}")
 				if itr % 10 == 0:
 					if loss < best_loss:
 						# save the model
 						best_loss = loss
-						model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}.pth"
+						if 'labpic' in dataset_name:
+							extra_loss_str = f'segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}'
+						elif 'spread' in dataset_name:
+							extra_loss_str = f'ce-{ce:.2f}-dice-{dice:.2f}-focal-{focal:.2f}'
+						else:
+							raise Exception(f"Unknown dataset: {dataset_name}")
+						model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
 						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
 						torch.save(predictor.model.state_dict(), model_str);
 	

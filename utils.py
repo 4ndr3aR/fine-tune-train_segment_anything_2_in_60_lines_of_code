@@ -9,7 +9,8 @@ import torch
 print(f'Loading cv2...')
 import cv2
 
-print(f'Loading copy...')
+print(f'Loading random and copy...')
+import random
 import copy
 
 print(f'Loading SAM2 modules...')
@@ -179,6 +180,7 @@ def not_this_color(image: np.array, color: list) -> np.array:
 	# color = [255, 0, 0]						# Red color
 	# not_c = not_this_color(image, color)
 
+'''
 def get_points_color(mask, num_points, bg_color=[0, 0, 0]):		# Sample points inside the input mask
 	points=[]
 	#coords = np.argwhere(mask > 0)
@@ -186,8 +188,50 @@ def get_points_color(mask, num_points, bg_color=[0, 0, 0]):		# Sample points ins
 	dbgprint(dataloader, LogLevel.TRACE, f"Not BG pixels	: {not_bg.shape}")
 	for i in range(num_points):
 		yx = np.array(not_bg[np.random.randint(len(not_bg))])
+		print(f'Random points: {yx} - {[yx[1], yx[0]]}')
 		points.append([[yx[1], yx[0]]])
 	return np.array(points)
+'''
+
+def extract_points_outside_region(mask, num_points, bg_color=[0, 0, 0]):
+	"""
+	Extract random points outside the specified region of an RGB segmentation mask.
+	
+	Args:
+		mask (numpy.ndarray): The RGB segmentation mask (H x W x 3).
+		num_points (int): The number of points to extract.
+		
+	Returns:
+		list: A list of (row, col) tuples representing the coordinates of the extracted points.
+	"""
+	# Ensure the input is a numpy array
+	mask = np.asarray(mask)
+	#not_bg = not_this_color(mask, bg_color)
+	dbgprint(dataloader, LogLevel.INFO, f"extract_points_outside_region() - Mask shape: {mask.shape}")
+	
+	# Check that the mask has the correct shape (H x W x 3)
+	if mask.ndim != 3 or mask.shape[2] != 3:
+		raise ValueError("The segmentation mask must be a 3D array with shape (H, W, 3).")
+	
+	# Find all non-region pixels (where RGB != (0, 0, 0))
+	non_region_mask = np.any(mask != bg_color, axis=-1)
+	
+	# Get the coordinates of all non-region pixels
+	non_region_coords = np.column_stack(np.where(non_region_mask))
+	
+	# Check if there are enough non-region pixels
+	if len(non_region_coords) < num_points:
+		raise ValueError("The number of non-region pixels is less than the requested number of points.")
+	
+	# Randomly sample `num_points` coordinates from non-region pixels
+	sampled_coords = random.sample(list(non_region_coords), num_points)
+	
+	# Convert to a list of tuples and return
+	#return [tuple(coord) for coord in sampled_coords]
+	# Convert to a list of lists, swap x/y because mask.shape == (270, 480, 3) and return
+	return [list((coord[1], coord[0])) for coord in sampled_coords]
+	#return sampled_coords
+
 
 def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-1):
 	"""
@@ -204,12 +248,17 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 	- The image with the points drawn on it.
 	"""
 
-	dbgprint(dataloader, LogLevel.TRACE, f"Points type	: {type(points)}")
-	dbgprint(dataloader, LogLevel.TRACE, f"Points shape	: {points.shape}")
-	dbgprint(dataloader, LogLevel.TRACE, f"Points		: {points}")
+	dbgprint(dataloader, LogLevel.INFO, f"Points type	: {type(points)}")
+	if isinstance(points, np.ndarray) or isinstance(points, torch.Tensor):
+		dbgprint(dataloader, LogLevel.INFO, f"Points shape	: {points.shape}")
+	if isinstance(points, list):
+		dbgprint(dataloader, LogLevel.INFO, f"Points len  	: {len(points)}")
+	dbgprint(dataloader, LogLevel.INFO, f"Points		: {points}")
 	for item in points:
-		x, y = item[0]
-		dbgprint(dataloader, LogLevel.TRACE, f"Drawing circle at	: {x} {y}")
+		dbgprint(dataloader, LogLevel.INFO, f"Points item	: {item} - {type(item)}")
+		#x, y = item[0]
+		x, y = item
+		dbgprint(dataloader, LogLevel.INFO, f"Drawing circle at	: {x} {y}")
 		cv2.circle(image, (x, y), radius, color, thickness)
 	return image
 
