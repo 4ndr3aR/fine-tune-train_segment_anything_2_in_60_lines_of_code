@@ -180,19 +180,6 @@ def not_this_color(image: np.array, color: list) -> np.array:
 	# color = [255, 0, 0]						# Red color
 	# not_c = not_this_color(image, color)
 
-'''
-def get_points_color(mask, num_points, bg_color=[0, 0, 0]):		# Sample points inside the input mask
-	points=[]
-	#coords = np.argwhere(mask > 0)
-	not_bg = not_this_color(mask, bg_color)
-	dbgprint(dataloader, LogLevel.TRACE, f"Not BG pixels	: {not_bg.shape}")
-	for i in range(num_points):
-		yx = np.array(not_bg[np.random.randint(len(not_bg))])
-		print(f'Random points: {yx} - {[yx[1], yx[0]]}')
-		points.append([[yx[1], yx[0]]])
-	return np.array(points)
-'''
-
 def extract_points_outside_region(mask, num_points, bg_color=[0, 0, 0]):
 	"""
 	Extract random points outside the specified region of an RGB segmentation mask.
@@ -226,8 +213,6 @@ def extract_points_outside_region(mask, num_points, bg_color=[0, 0, 0]):
 	# Randomly sample `num_points` coordinates from non-region pixels
 	sampled_coords = random.sample(list(non_region_coords), num_points)
 	
-	# Convert to a list of tuples and return
-	#return [tuple(coord) for coord in sampled_coords]
 	# Convert to a list of lists, swap x/y because mask.shape == (270, 480, 3) and return
 	return [list((coord[1], coord[0])) for coord in sampled_coords]
 	#return sampled_coords

@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 
 import sys
-#import time
 from datetime import datetime
 from enum import Enum
-#from colorama import init, Fore, Style  # Requires colorama: pip install colorama
 from xtermcolor import colorize
-
-#init()  # Initialize colorama for Windows compatibility
 
 class LogLevel(Enum):
 	TRACE	= 1
@@ -101,51 +97,6 @@ subsystem_colors = {
 	Subsystem.LOSS:		Color.YELLOW,
 }
 
-
-## Color dictionary for log levels
-#loglevel_colors = { 
-#    LogLevel.TRACE:     240,  # Dark gray
-#    LogLevel.VERBOSE:   245,  # Dim white
-#    LogLevel.DEBUG:     10,   # Light green
-#    LogLevel.INFO:      15,   # White
-#    LogLevel.WARNING:   11,   # Yellow
-#    LogLevel.ERROR:     9,    # Red
-#    LogLevel.FATAL:     13,   # Magenta
-#}
-#
-## Color dictionary for subsystems
-#subsystem_colors = { 
-#    Subsystem.SHAREDMEM:        12,   # Light blue
-#    Subsystem.THREADING:        14,   # Light cyan
-#    Subsystem.QUEUES:           227,  # Light yellow
-#    Subsystem.NETWORK:          207,  # Light magenta
-#    Subsystem.TRAIN:            203,  # Light red
-#    Subsystem.VALIDATE:         203,  # Light red
-#}
-
-
-## Xterm color codes for log levels
-#loglevel_colors = { 
-#    LogLevel.TRACE:     8,       # Light Black
-#    LogLevel.VERBOSE:   7,       # White with dim style (xterm doesn't have a direct dim style, so we use white)
-#    LogLevel.DEBUG:     10,      # Light Green
-#    LogLevel.INFO:      15,      # White
-#    LogLevel.WARNING:   11,      # Yellow
-#    LogLevel.ERROR:     9,       # Red
-#    LogLevel.FATAL:     13,      # Magenta
-#}
-#
-## Xterm color codes for subsystems (customize as needed)
-#subsystem_colors = { 
-#    Subsystem.SHAREDMEM:        14,  # Light Blue
-#    Subsystem.THREADING:        12,  # Light Cyan
-#    Subsystem.QUEUES:           11,  # Light Yellow
-#    Subsystem.NETWORK:          13,  # Light Magenta
-#    Subsystem.TRAIN:            9,   # Light Red
-#    Subsystem.VALIDATE:         9,   # Light Red
-#}
-
-
 # Enabled subsystems and their minimum log levels
 enabled_subsystems = {
 	Subsystem.THREADING:	LogLevel.DEBUG,
@@ -177,18 +128,14 @@ def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
     if subsystem not in enabled_subsystems or loglevel.value < enabled_subsystems[subsystem].value:
         return  # Suppress output if subsystem/loglevel is disabled
 
-    #timestamp = time.strftime("%H:%M:%S.%f")[:-3]  # Format timestamp
-    #timestamp = time.strftime("%H:%M:%S.%f")  # Format timestamp
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]	# Format timestamp
 
     lcolor = loglevel_colors[loglevel]
     scolor = subsystem_colors[subsystem]
-    #print(f'{lcolor = }, {scolor = }')
     padded_loglevel  = colorize(loglevel.name.ljust (len(LogLevel.WARNING.name)),	ansi=lcolor.value)
     padded_subsystem = colorize(subsystem.name.ljust(len(Subsystem.WIDEST____.name)),	ansi=scolor.value)
 
     #Construct the output string
-    #output_str = f"[{timestamp}][{lcolor}{padded_loglevel}{Style.RESET_ALL}] - [{scolor}{padded_subsystem}{Style.RESET_ALL}] "
     output_str = f"[{timestamp}][{padded_loglevel}] - [{padded_subsystem}] "
 
     #Handle f-strings and multiple arguments elegantly
@@ -197,7 +144,6 @@ def dbgprint(subsystem, loglevel, *args, sep=' ', end='\n', flush=False):
     else:
         output_str += sep.join(map(str, args))
 
-    #print(f"{Style.BRIGHT}{Fore.WHITE}{output_str}{Style.RESET_ALL}", sep=sep, end=end, flush=flush)
     print(f"{output_str}", sep=sep, end=end, flush=flush)
 
 def colorama_test_1():
