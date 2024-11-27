@@ -18,7 +18,7 @@ from dbgprint import *
 
 from colors import popular_colors, get_rgb_by_name, get_name_by_rgb, get_rgb_by_idx
 
-from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points
+from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, draw_points_on_image, replace_bg_color
 
 # use bfloat16 for the entire script (memory efficient)
 torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -96,30 +96,6 @@ def read_image(image_path, mask_path):					# read and resize image and mask
 	rgb_mask = cv2.resize(rgb_mask,	(int(rgb_mask.shape[1]	* r), int(mask.shape[0]	* r)), interpolation=cv2.INTER_NEAREST)
 
 	return img, mask, rgb_mask
-
-def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-1):
-	"""
-	Draws a list of (x, y) points onto an image.
-
-	Parameters:
-	- image: The input image (numpy array).
-	- points: List of (x, y) tuples representing the points to draw.
-	- color: The color of the points (BGR format). Default is red (0, 0, 255).
-	- radius: The radius of the circles. Default is 5.
-	- thickness: The thickness of the circles. -1 fills the circle. Default is -1.
-
-	Returns:
-	- The image with the points drawn on it.
-	"""
-
-	dbgprint(dataloader, LogLevel.TRACE, f"Points type	: {type(points)}")
-	dbgprint(dataloader, LogLevel.TRACE, f"Points shape	: {points.shape}")
-	dbgprint(dataloader, LogLevel.TRACE, f"Points		: {points}")
-	for item in points:
-		x, y = item[0]
-		dbgprint(dataloader, LogLevel.TRACE, f"Drawing circle at	: {x} {y}")
-		cv2.circle(image, (x, y), radius, color, thickness)
-	return image
 
 def predict(image, input_points):
 	# predict mask

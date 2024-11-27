@@ -3,11 +3,20 @@
 import os
 import argparse
 
+# Create a sub-dataset with fewer images
+
+#> for dir in `ls -d */ | grep -v __` ; do echo "===================== $dir ===================" ; cd $dir ; mkdir -p /tmp/ramdrive/spread-mini/$dir ; for subdir in rgb semantic_segmentation instance_segmentation ; do echo $subdir ; mkdir -p /tmp/ramdrive/spread-mini/$dir/$subdir ; rsync $subdir/Tree11*.png /tmp/ramdrive/spread-mini/$dir$subdir ; done ; cd .. ; pwd ; echo '----------------------------------------------------' ; done
+
+
+# Check that the sub-dataset has all the corresponding rgb/instance/segmentation images
+
+#> for dir in `ls -d *` ; do flist=`ls $dir/rgb/*.png` ; for fn in $flist ; do bn=`basename $fn` ; echo $bn ; ll $dir/instance_segmentation/$bn $dir/semantic_segmentation/$bn ; done ; done &> /tmp/spread-mini-check.txt
+
 def parse_arguments():
 	parser = argparse.ArgumentParser(description="Configuration for your script")
 
 	parser.add_argument("--gpu_id",		type=int,	default=0,		help="GPU ID to use (default: 0)")
-	parser.add_argument("--num_workers",	type=int,	default=16,		help="Number of worker threads (default: 16)")
+	parser.add_argument("--num_workers",	type=int,	default=48,		help="Number of worker threads (default: 16)")
 	parser.add_argument("--num_epochs",	type=int,	default=1000,		help="Number of training epochs (default: 1000)")
 	parser.add_argument("--batch_size",	type=int,	default=63,		help="Batch size for training (default: 63)")
 	parser.add_argument("--model_size",	type=str,	default='small',	help="Model size (default: small)", choices=['tiny', 'small', 'base', 'large'])
@@ -16,7 +25,7 @@ def parse_arguments():
 	parser.add_argument("--lr",		type=float,	default=1e-5,		help="Learning rate (default: 1e-5)")
 	parser.add_argument("--wr",		type=float,	default=4e-5,		help="Weight regularization rate (default: 4e-5)")
 	parser.add_argument("--split",		type=str,	default='70/20/10',	help="Train/validation/test split ratio (default: 70/20/10)")
-	parser.add_argument("--img_resolution", type=str,	default='960x540',	help="Image resolution in widthxheight format (default: 960x540)")
+	parser.add_argument("--img_resolution", type=str,	default='1024x1024',	help="Image resolution in WxH format (default: 1024x1024)")
 
 	args = parser.parse_args()
 
@@ -29,19 +38,26 @@ if __name__ == "__main__":
 
 from pathlib import Path
 
+print(f'Loading numpy...')
 import numpy as np
+print(f'Loading torch...')
 import torch
 
 import pdb
+print(f'Loading cv2...')
 import cv2
 
+print(f'Loading torch Dataset and DataLoader...')
 from torch.utils.data import Dataset, DataLoader
+print(f'Loading sklearn...')
 from sklearn.model_selection import train_test_split
 
+print(f'Loading dbgprint...')
 from dbgprint import dbgprint
 from dbgprint import *
 
-from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points
+print(f'Loading utils functions...')
+from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, get_points_color, draw_points_on_image, replace_bg_color
 
 def unpack_resolution(resolution_str):
     """Unpacks the resolution string into width and height."""
@@ -122,6 +138,8 @@ class LabPicsDataset(Dataset):
             point = [[0, 0]]  # Provide a default point
 
         dbgprint(dataloader, LogLevel.TRACE, f'{type(Img)} {type(mask)} {type(point)}')
+        dbgprint(dataloader, LogLevel.INFO, f"Input points len: {len(point)}")
+        dbgprint(dataloader, LogLevel.INFO, f"Input points: {point}")
         return Img, mask, point
 
 def collate_fn(data):
@@ -136,102 +154,152 @@ def collate_fn(data):
     return list(imgs), list(masks), list(points)
 
 class SpreadDataset(Dataset):
-    def __init__(self, data_dir, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
-        self.data_dir = data_dir
-        self.split = split
-        
-        # Collect all data entries
-        self.data = []
-        for class_dir in os.listdir(data_dir):
-            dbgprint(dataloader, LogLevel.TRACE, f'Reading directory: {class_dir}')
-            if not os.path.isdir(os.path.join(data_dir, class_dir)):
-                continue
-            rgb_dir = os.path.join(data_dir, class_dir, "rgb")
-            dbgprint(dataloader, LogLevel.TRACE, f'RGB directory: {rgb_dir}')
-            if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
-                continue
-            instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
-            dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {instance_dir}')
-            if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
-                continue
-            for idx, name in enumerate(os.listdir(rgb_dir)):
-                if idx % 1000 == 0:
-                    print('.', end='', flush=True)
-                if name.endswith(".png"):
-                    self.data.append({
-                        "image": os.path.join(rgb_dir, name),
-                        "annotation": os.path.join(instance_dir, name)
-                    })
+	def __init__(self, data_dir, width=1024, height=1024, split="train", train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+		self.data_dir				= data_dir
+		self.split				= split
+		self.width				= width
+		self.height				= height
+		self.debug_instance_segmentation_masks	= False
+		self.debug_input_points			= False
+		
+		# Collect all data entries
+		self.data = []
+		for class_dir in os.listdir(data_dir):
+			dbgprint(dataloader, LogLevel.TRACE, f'Reading directory: {class_dir}')
+			if not os.path.isdir(os.path.join(data_dir, class_dir)):
+				continue
 
-        #dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
-        dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(self.data)} images")
+			rgb_dir = os.path.join(data_dir, class_dir, "rgb")
+			dbgprint(dataloader, LogLevel.TRACE, f'RGB directory: {rgb_dir}')
+			if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
+				continue
 
-        # Create splits
-        train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
-        train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
+			instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
+			dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {instance_dir}')
+			if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
+				continue
 
-        dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")			# we already print this later
-        
-        if split == "train":
-            self.data = train_data
-        elif split == "val":
-            self.data = val_data
-        elif split == "test":
-            self.data = test_data
+			segmentation_dir = os.path.join(data_dir, class_dir, "semantic_segmentation")
+			dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {segmentation_dir}')
+			if not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir):
+				continue
 
-    def __len__(self):
-        return len(self.data)
+			for idx, name in enumerate(os.listdir(rgb_dir)):
+				if idx % 1000 == 0:
+					print('.', end='', flush=True)
+				if name.endswith(".png"):
+					im_fn    = os.path.join(rgb_dir, name)
+					imask_fn = os.path.join(instance_dir, name)
+					smask_fn = os.path.join(segmentation_dir, name)
+					self.data.append({
+						"image_fn"	 : im_fn,
+						"instance_fn"	 : imask_fn,
+						"segmentation_fn": smask_fn,
+						"image"		 : cv2.imread(im_fn, cv2.IMREAD_UNCHANGED)[..., ::-1],		# RGB plz
+						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1],		# RGB plz
+						"segmentation"	 : None,	# TODO
+					})
 
-    def __getitem__(self, idx):
-        ent = self.data[idx]
-        dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["annotation"]}')
-        Img = cv2.imread(ent["image"])[..., ::-1]  # Convert BGR to RGB
-        #ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)  # Read as is
-        ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_GRAYSCALE)  # Read grayscale
+		#dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
+		dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(self.data)} images")
 
-        # Resize images and masks to the same resolution
-        Img = cv2.resize(Img, (960, 540))
-        ann_map = cv2.resize(ann_map, (960, 540), interpolation=cv2.INTER_NEAREST)
+		# Create splits
+		train_data, test_data = train_test_split(self.data,  test_size=test_ratio, random_state=42)
+		train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
 
-        num_samples = 30
+		dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")			# we already print this later
+		
+		if split == "train":
+			self.data = train_data
+		elif split == "val":
+			self.data = val_data
+		elif split == "test":
+			self.data = test_data
 
-        '''
-        rgb_mask	= to_rgb(ann_map)
+	def __len__(self):
+		return len(self.data)
 
-        classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
-        rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
-        '''
-        input_points	= get_points(ann_map, num_samples)
-        input_points	= np.ravel(input_points)
+	def __getitem__(self, idx):
+		ent	= self.data[idx]
+		dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["instance"]} - {ent["segmentation"]}')
+		#img	= cv2.imread(ent["image"])[..., ::-1]					# Convert BGR to RGB
+		img	= ent["image"]
+		if img is None:
+			dbgprint(dataloader, LogLevel.ERROR, f'Error reading image: {ent["image"]}')
+		#ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)			# Read as is
+		#imask = cv2.imread(ent["instance"], cv2.IMREAD_GRAYSCALE)			# Read grayscale
+		#imask	= cv2.imread(ent["instance"],		cv2.IMREAD_UNCHANGED)		# Read as is
+		imask	= ent["instance"]
+		if imask is None:
+			dbgprint(dataloader, LogLevel.ERROR, f'Error reading instance segmentation mask: {ent["instance"]}')
+		#imask	= replace_white_background_with_black(imask)
+		#smask	= cv2.imread(ent["segmentation"],	cv2.IMREAD_GRAYSCALE)		# Read grayscale
 
-        #dbgprint(dataloader, LogLevel.INFO, f"Image shape      : {Img.shape}")
-        #dbgprint(dataloader, LogLevel.INFO, f"Mask  shape      : {ann_map.shape}")
-        #dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape   : {rgb_mask.shape}")
-        dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
-        dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
+		# Resize images and masks to the same resolution
+		img	= cv2.resize(img,	(self.width, self.height))
+		imask	= cv2.resize(imask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
+		#smask	= cv2.resize(smask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
+
+		#classes, freqs	= get_unique_classes  (imask, is_grayscale_img(imask))
+		#dbgprint(dataloader, LogLevel.TRACE, f'Classes: {classes} - {freqs}')
+		#rgb_mask	= replace_class_colors(imask, classes, freqs=freqs)
+
+		#cv2.imshow("Image", img)
+		if self.debug_instance_segmentation_masks:
+			outfn = Path('/tmp/spread-out-tmp') / str(Path(ent["image_fn"]).name[:-4]+'instance.jpg')
+			dbgprint(dataloader, LogLevel.INFO, f'Writing modified instance segmentation mask: {outfn}')
+			cv2.imwrite(outfn, imask)
+		#cv2.waitKey()
 
 
-        '''
-        # Process the annotation map
-        mat_map = ann_map[:, :, 0]
-        ves_map = ann_map[:, :, 2]
-        mat_map[mat_map == 0] = ves_map[mat_map == 0] * (mat_map.max() + 1)
+		num_samples = 30
 
-        inds = np.unique(mat_map)[1:]
-        if len(inds) > 0:
-            ind = np.random.choice(inds)
-            mask = (mat_map == ind).astype(np.uint8)
-            coords = np.argwhere(mask > 0)
-            yx = coords[np.random.randint(len(coords))]
-            point = [[yx[1], yx[0]]]
-        else:
-            mask = np.zeros_like(mat_map, dtype=np.uint8)
-            point = [[0, 0]]  # Provide a default point
+		'''
+		rgb_mask	= to_rgb(ann_map)
 
-        return Img, mask, point
-        '''
+		classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
+		rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
+		'''
+		#input_points	= get_points(imask, num_samples)
+		input_points	= get_points_color(imask, num_samples, bg_color=[255, 255, 255])
 
-        return Img, ann_map, input_points
+		if self.debug_input_points or True:
+			imask= draw_points_on_image(imask, input_points)
+			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
+			outfn	= Path('/tmp/spread-out-tmp') / str(Path(ent["image_fn"]).name[:-4]+'points.jpg')
+			dbgprint(dataloader, LogLevel.INFO, f'Writing mask with points: {outfn}')
+			cv2.imwrite(outfn, imask)
+		input_points	= np.ravel(input_points)
+
+		#dbgprint(dataloader, LogLevel.INFO, f"Image shape	  : {Img.shape}")
+		#dbgprint(dataloader, LogLevel.INFO, f"Mask  shape	  : {ann_map.shape}")
+		#dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape   : {rgb_mask.shape}")
+		dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+		dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
+
+
+		'''
+		# Process the annotation map
+		mat_map = ann_map[:, :, 0]
+		ves_map = ann_map[:, :, 2]
+		mat_map[mat_map == 0] = ves_map[mat_map == 0] * (mat_map.max() + 1)
+
+		inds = np.unique(mat_map)[1:]
+		if len(inds) > 0:
+			ind = np.random.choice(inds)
+			mask = (mat_map == ind).astype(np.uint8)
+			coords = np.argwhere(mask > 0)
+			yx = coords[np.random.randint(len(coords))]
+			point = [[yx[1], yx[0]]]
+		else:
+			mask = np.zeros_like(mat_map, dtype=np.uint8)
+			point = [[0, 0]]  # Provide a default point
+
+		return Img, mask, point
+		'''
+
+		#return img, ann_map, input_points
+		return img, imask, input_points
 
 
 
@@ -407,7 +475,7 @@ def wandb_log_masked_images(images, masks, pred_masks, pred_scores):
 
 
 if __name__ == "__main__":
-	args		= parse_arguments()
+	args			= parse_arguments()
 
 	# Example usage of the functions
 	gpu_id			= args.gpu_id
@@ -424,8 +492,10 @@ if __name__ == "__main__":
 	_breakpoints		= {}
 
 	if use_wandb:
+		dbgprint(main, LogLevel.INFO, f"Enabling Weights & Biases logging...")
 		import wandb
 
+	dbgprint(main, LogLevel.INFO, f"Setting global variables...")
 	sam2_checkpoint, model_cfg		= set_model_paths(model_size)
 	train_ratio, val_ratio, test_ratio	= decode_split_ratio(split)
 	width, height				= unpack_resolution(image_resolution)
@@ -466,7 +536,8 @@ if __name__ == "__main__":
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-		data_dir	= Path("/mnt/raid1/dataset/spread")
+		#data_dir	= Path("/mnt/raid1/dataset/spread")
+		data_dir	= Path("/tmp/ramdrive/spread-mini")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train")
 		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
@@ -492,6 +563,7 @@ if __name__ == "__main__":
 	
 	#sam2_model	= build_sam2(model_cfg, sam2_checkpoint, device="cuda")	# load model
 	#predictor	= SAM2ImagePredictor(sam2_model)
+	dbgprint(main, LogLevel.INFO, f"Creating SAM2 model...")
 	predictor	= create_model(model_size)				# checkpoint=None, don't load any pretrained weights
 
 	# Magic
