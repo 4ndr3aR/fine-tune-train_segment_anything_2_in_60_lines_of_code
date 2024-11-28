@@ -41,6 +41,8 @@ def parse_arguments():
 	# Add arguments
 	parser.add_argument("--model_size",	type=str,		default='small',		help="Model size (default: small)", choices=['tiny', 'small', 'base', 'large'])
 	parser.add_argument('--image_path',	type=str,		default=r"sample_image.jpg",	help='Path to the image file')
+	parser.add_argument('--images_ext',	type=str,		default=r"jpg",			help='Images file extension (default: jpg)')
+	parser.add_argument('--masks_ext',	type=str,		default=r"png",			help='Masks  file extension (default: png)')
 	parser.add_argument('--mask_path',	type=str,		default=r"sample_mask.png",	help='Path to the mask file')
 	parser.add_argument('--dir_path',	type=str,		default=r"",			help='Path to the dataset to be segmented')
 	parser.add_argument('--min_max_size',	type=float,		default=0.05,			help='Minimum and maximum size for segmentation')
@@ -225,6 +227,8 @@ if __name__ == "__main__":
 	checkpoint	= args.model
 	dir_path	= args.dir_path
 	debug_masks	= args.debug_masks
+	images_ext	= args.images_ext
+	masks_ext	= args.masks_ext
 	num_samples	= 30							# number of points/segment to sample
 
 	dataset = []
@@ -249,8 +253,8 @@ if __name__ == "__main__":
 		dbgprint(dataloader, LogLevel.INFO, f"Masks  dir	: {masks_dir}")
 
 		# Pattern to match image and mask files
-		image_pattern = imgs_dir  / '*.jpg'
-		mask_pattern  = masks_dir / '*.png'
+		image_pattern = imgs_dir  / f'*.{images_ext}'
+		mask_pattern  = masks_dir / f'*.{masks_ext}'
 
 		dbgprint(dataloader, LogLevel.INFO, f'Processing images in {dir_path}')
 
