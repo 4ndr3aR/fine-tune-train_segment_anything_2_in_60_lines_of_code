@@ -86,11 +86,27 @@ class InstanceSegmentationLoss(nn.Module):
 		"""
 		Dice Loss for segmentation
 		"""
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target		: {target}')			# the RGB instance seg. mask
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred		: {pred}')
+		'''
 		pred = torch.softmax(pred, dim=1)
-		target_one_hot = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2).float()
-		
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred.shape	: {pred.shape}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred		: {pred}')
+		target_one_hot = F.one_hot(target, num_classes=pred.shape[1])
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target_one_hot.shape	: {target_one_hot.shape}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target_one_hot		: {target_one_hot}')
+		target_one_hot = target_one_hot.permute(0, 4, 1, 2, 3).float()
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target_one_hot.shape	: {target_one_hot.shape}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target_one_hot		: {target_one_hot}')
 		intersection = torch.sum(pred * target_one_hot, dim=(2, 3))
-		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target_one_hot, dim=(2, 3))
+		'''
+		
+		intersection = torch.sum(pred * target, dim=(2, 3))
+		#union = torch.sum(pred, dim=(2, 3)) + torch.sum(target_one_hot, dim=(2, 3))
+		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target, dim=(2, 3))
 		
 		dice = (2 * intersection + 1e-7) / (union + 1e-7)
 		return 1 - dice.mean()
@@ -109,10 +125,19 @@ class InstanceSegmentationLoss(nn.Module):
 		Intersection over Union (IoU) Loss
 		"""
 		pred = torch.softmax(pred, dim=1)
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - target		: {target}')			# the RGB instance seg. mask
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - pred		: {pred}')
+
+		'''
 		target_one_hot = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2).float()
 		
 		intersection = torch.sum(pred * target_one_hot, dim=(2, 3))
 		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target_one_hot, dim=(2, 3)) - intersection
+		'''
+		intersection = torch.sum(pred * target, dim=(2, 3))
+		union = torch.sum(pred, dim=(2, 3)) + torch.sum(target, dim=(2, 3)) - intersection
 		
 		iou = (intersection + 1e-7) / (union + 1e-7)
 		return 1 - iou.mean()
@@ -147,9 +172,9 @@ class InstanceSegmentationLoss(nn.Module):
 
 		# Compute individual loss components
 		ce	= self.cross_entropy_loss(pred, target.float().cuda())
-		dice	= self.dice_loss	 (pred, target.long().cuda())
-		focal	= self.focal_loss	 (pred, target)
-		iou	= self.iou_loss		 (pred, target)
+		dice	= self.dice_loss	 (pred, target.cuda())
+		focal	= self.focal_loss	 (pred, target.float().cuda())
+		iou	= self.iou_loss		 (pred, target.cuda())
 
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - ce: {ce}, dice: {dice}, focal: {focal}, iou: {iou}')
 		
@@ -555,6 +580,9 @@ def validate(predictor, val_loader):
 	total_iou = 0
 	total_seg_loss = 0
 	total_score_loss = 0
+	total_ce_loss = 0
+	total_dice_loss = 0
+	total_focal_loss = 0
 	predictor.model.eval()
 	with torch.no_grad():
 		for itr, (images, masks, input_points) in enumerate(val_loader):
@@ -568,50 +596,72 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
 
 			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
-			loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+			loss, seg_loss, score_loss, iou	= None, None, None, None
+			loss, ce, dice, focal, iou	= None, None, None, None, None
+			if 'labpic' in dataset_name:
+				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+			elif 'spread' in dataset_name:
+				loss_fn = InstanceSegmentationLoss(
+					alpha=0.5,   # Cross-Entropy weight
+					beta =1.0,   # Dice loss weight
+					gamma=1.0,   # Focal loss weight
+					delta=0.25   # IoU loss weight
+				)
+				loss, ce, dice, focal, iou = loss_fn(pred_masks, masks)
+			else:
+				raise Exception(f"Unknown dataset: {dataset_name}")
 
-			if itr == 0:
-				#wandb_images = wandb.Image(images, caption="Validation 1st batch")
-				#wandb.log({"examples": images})
-				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
-				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
+			if use_wandb:
+				wandb.log({
+						"loss": loss, "best_loss": best_loss,
+						"iou": iou.mean().item(), "mean_iou": mean_iou, "best_iou": best_iou,
+						"epoch": epoch, "itr": itr,
+					})
+				if 'labpic' in dataset_name:
+					wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+				elif 'spread' in dataset_name:
+					wandb.log({"ce": ce, "dice": dice, "focal": focal})
+				else:
+					raise Exception(f"Unknown dataset: {dataset_name}")
+				if itr == 0:
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
+					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
 
-				'''
-				table = wandb.Table(columns=["Image", "Mask"])
-
-				class_labels = {1: "class1", 2: "class2"}
-				for img, msk, pred_mask, pred_score in zip(images, masks, pred_masks, pred_scores):
-					gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).cuda()
-					pred_msk  = torch.sigmoid(pred_mask[:, 0])
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'7. - {gt_msk.shape = } - {pred_mask.shape = } - {pred_score.shape = }')
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'8. - {gt_msk = }')
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'9. - {pred_msk = }')
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'0. - {pred_score = }')
-
-					mask_img = wandb.Image(img, masks={
-										"prediction":	{"mask_data": pred_msk, "class_labels": class_labels},
-										"ground_truth":	{"mask_data": gt_msk,  "class_labels": class_labels}
-									})
-					table.add_data(img, pred_score[:, 0])
-				wandb.log({"Table": table})
-				'''
-				wandb_log_masked_images(images, masks, pred_masks, pred_scores)
+					wandb_log_masked_images(images, masks, pred_masks, pred_scores)
 
 
+			total_loss		+= loss.item()
+			total_iou		+= iou.mean().item()
+			avg_val_loss		= total_loss / (itr + 1)
+			avg_val_iou		= total_iou / (itr + 1)
 
-			total_loss += loss.item()
-			total_iou += iou.mean().item()
-			total_score_loss += score_loss.item()
-			total_seg_loss += seg_loss.item()
+			#mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
+			if 'labpic' in dataset_name:
+				total_score_loss	+= score_loss.item()
+				total_seg_loss		+= seg_loss.item()
+				avg_val_score_loss	= total_score_loss / (itr + 1)
+				avg_val_seg_loss	= total_seg_loss / (itr + 1)
 
-			avg_val_loss = total_loss / (itr + 1)
-			avg_val_iou = total_iou / (itr + 1)
-			avg_val_score_loss = total_score_loss / (itr + 1)
-			avg_val_seg_loss = total_seg_loss / (itr + 1)
+				extra_loss_str		= f'avg_val_seg_loss: {avg_val_seg_loss:.2f} - avg_val_score_loss: {avg_val_score_loss:.2f}'
+				extra_loss_values	= (avg_val_seg_loss, avg_val_score_loss)
+			elif 'spread' in dataset_name:
+				total_ce_loss			+= ce.item()
+				total_dice_loss			+= dice.item()
+				total_focal_loss		+= focal.item()
+				avg_val_ce			= total_ce_loss / (itr + 1)
+				avg_val_dice			= total_dice_loss / (itr + 1)
+				avg_val_focal			= total_focal_loss / (itr + 1)
+				extra_loss_str			= f'avg_val_ce: {avg_val_ce:.2f} - avg_val_dice: {avg_val_dice:.2f} - avg_val_focal: {avg_val_focal:.2f}'
+				extra_loss_values		= (avg_val_ce, avg_val_dice, avg_val_focal)
+			else:
+				raise Exception(f"Unknown dataset: {dataset_name}")
 
-			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {itr}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
+			#dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {itr}, Validation loss: {avg_val_loss:.4f}, Val IOU: {avg_val_iou:.4f}, Val score loss: {avg_val_score_loss:.4f}, Val seg loss: {avg_val_seg_loss:.4f}')
+			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Batch {itr}, validation loss: {avg_val_loss:.4f}, val IOU: {avg_val_iou:.4f}, {extra_loss_str}')
 
-	return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, itr
+	#return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, itr
+	return itr, avg_val_loss, avg_val_iou, extra_loss_str, *extra_loss_values
 
 
 def wandb_log_masked_images(images, masks, pred_masks, pred_scores):
@@ -834,17 +884,42 @@ if __name__ == "__main__":
 						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
 						torch.save(predictor.model.state_dict(), model_str);
 	
-		avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
-		dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
+		#avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
+		if 'labpic' in dataset_name:
+			num_batches, avg_val_loss, avg_val_iou, extra_loss_str, avg_val_seg_loss, avg_val_score_loss	= validate(predictor, val_loader)
+		elif 'spread' in dataset_name:
+			num_batches, avg_val_loss, avg_val_iou, extra_loss_str, avg_val_ce, avg_val_dice, avg_val_focal	= validate(predictor, val_loader)
+		else:
+			raise Exception(f"Unknown dataset: {dataset_name}")
+		#dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, Score: {avg_val_score_loss:.4f}, Seg: {avg_val_seg_loss:.4f}')
+		dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'Num batches: {num_batches}, Loss: {avg_val_loss:.4f}, IOU: {avg_val_iou:.4f}, {extra_loss_str}')
 
 
 		if use_wandb:
-			wandb.log({"val_loss": avg_val_loss, "val_iou": avg_val_iou, "val_seg_loss": avg_val_seg_loss, "val_score_loss": avg_val_score_loss, "epoch": epoch, "best_iou": best_iou, "best_loss": best_loss, "mean_iou": mean_iou, "num_batches": num_batches})
+			#wandb.log({"val_loss": avg_val_loss, "val_iou": avg_val_iou, "val_seg_loss": avg_val_seg_loss, "val_score_loss": avg_val_score_loss, "epoch": epoch, "best_iou": best_iou, "best_loss": best_loss, "mean_iou": mean_iou, "num_batches": num_batches})
+			'''
+			wandb.log({
+					"val_loss": avg_val_loss, "best_loss": best_loss,
+					"iou": iou.mean().item(), "mean_iou": mean_iou, "best_iou": best_iou,
+					"epoch": epoch, "itr": itr,
+				})
+			'''
+			wandb.log({
+					"epoch": epoch, "num_batches": num_batches,
+					"val_loss": avg_val_loss, "best_loss": best_loss,
+					"val_iou": avg_val_iou, "best_iou": best_iou,
+					"mean_iou": mean_iou})
+			if 'labpic' in dataset_name:
+				wandb.log({"val_seg_loss": avg_val_seg_loss, "val_score_loss": avg_val_score_loss})
+			elif 'spread' in dataset_name:
+				wandb.log({"val_ce": avg_val_ce, "val_dice": avg_val_dice, "val_focal": avg_val_focal})
+			else:
+				raise Exception(f"Unknown dataset: {dataset_name}")
 
 
 		if avg_val_loss < best_loss or avg_val_iou > best_iou:
 			best_loss = avg_val_loss
 			best_iou  = avg_val_iou
-			model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-validation-epoch-{epoch}-bs-{batch_size}-iou-{avg_val_iou:.3f}-best-loss-{avg_val_loss:.2f}-segloss-{avg_val_seg_loss:.2f}-scoreloss-{avg_val_score_loss:.2f}.pth"
+			model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-validation-epoch-{epoch}-bs-{batch_size}-iou-{avg_val_iou:.3f}-best-loss-{avg_val_loss:.2f}-{extra_loss_str.replace(':','-').replace(' ','')}.pth"
 			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
-			torch.save(predictor.model.state_dict(), model_str);
+			torch.save(predictor.model.state_dict(), model_str)
