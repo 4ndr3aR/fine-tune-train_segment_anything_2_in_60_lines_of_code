@@ -240,9 +240,11 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 		dbgprint(dataloader, LogLevel.INFO, f"Points len  	: {len(points)}")
 	dbgprint(dataloader, LogLevel.INFO, f"Points		: {points}")
 	for item in points:
-		dbgprint(dataloader, LogLevel.INFO, f"Points item	: {item} - {type(item)}")
-		#x, y = item[0]
-		x, y = item
+		dbgprint(dataloader, LogLevel.INFO, f"Points item	: {item} - {type(item)} - {len(item)} - {item.shape}")
+		if len(item) == 1 and item.shape[1] == 2:
+			x, y = item[0]
+		else:
+			x, y = item
 		dbgprint(dataloader, LogLevel.INFO, f"Drawing circle at	: {x} {y}")
 		cv2.circle(image, (x, y), radius, color, thickness)
 	return image

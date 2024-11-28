@@ -153,28 +153,37 @@ class InstanceSegmentationLoss(nn.Module):
 
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - {type(pred) = }, {type(target) = }')
 		if isinstance(pred, torch.Tensor) or isinstance(pred, np.ndarray):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred.shape: {pred.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred.shape	: {pred.shape}')
 		elif isinstance(pred, list):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred len: {len(pred)}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred len		: {len(pred)}')
 		else:
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred: {pred}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred		: {pred}')
 	
 		if isinstance(target, torch.Tensor) or isinstance(target, np.ndarray):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
 		elif isinstance(target, list):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target len: {len(target)}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target len	: {len(target)}')
 		else:
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target: {target}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target		: {target}')
 
 		if isinstance(target, list):
-			target = torch.stack([torch.tensor(target[i]) for i in range(len(target))], dim=0).reshape(pred.shape)
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape: {target.shape}')
+			#target = torch.stack([torch.tensor(target[i]) for i in range(len(target))], dim=0).reshape(pred.shape)
+			target = torch.tensor(np.array(target).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
+			target = torch.sigmoid(target)						# Turn logit map to probability map
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target		: {target.shape}')
+
 
 		# Compute individual loss components
-		ce	= self.cross_entropy_loss(pred, target.float().cuda())
-		dice	= self.dice_loss	 (pred, target.cuda())
-		focal	= self.focal_loss	 (pred, target.float().cuda())
-		iou	= self.iou_loss		 (pred, target.cuda())
+		#ce	= self.cross_entropy_loss(pred, target.float().cuda())
+		#dice	= self.dice_loss	 (pred, target.cuda())
+		#focal	= self.focal_loss	 (pred, target.float().cuda())
+		#iou	= self.iou_loss		 (pred, target.cuda())
+		ce	= self.cross_entropy_loss(pred, target)
+		dice	= self.dice_loss	 (pred, target)
+		focal	= self.focal_loss	 (pred, target)
+		iou	= self.iou_loss		 (pred, target)
 
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - ce: {ce}, dice: {dice}, focal: {focal}, iou: {iou}')
 		
@@ -557,12 +566,20 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 
 	return pred_masks, pred_scores
 
-def calc_loss_and_metrics(mask, pred_masks, pred_scores, score_loss_weight=0.05):
+def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weight=0.05):
 	# Segmentaion Loss caclulation
 
-	gt_mask  = torch.tensor(np.array(mask).astype(np.float32)).cuda()
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {type(target_masks) = } - {len(target_masks) = } - {target_masks[0].dtype = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {target_masks = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {type(pred_masks) = } - {pred_masks.shape = } - {pred_masks.dtype = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {pred_masks = }')
+	gt_mask   = torch.tensor(np.array(target_masks).astype(np.float32)).cuda()
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {gt_mask = }')
 	pred_mask = torch.sigmoid(pred_masks[:, 0])						# Turn logit map to probability map
-	seg_loss = (-gt_mask * torch.log(pred_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - pred_mask) + 0.00001)).mean() # cross entropy loss
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {type(pred_mask) = } - {pred_mask.shape = } - {pred_mask.dtype = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'calc_loss_and_metrics() - {pred_mask = }')
+	seg_loss  = (-gt_mask * torch.log(pred_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - pred_mask) + 0.00001)).mean() # cross entropy loss
 
 	# Score loss calculation (intersection over union) IOU
 
@@ -596,11 +613,11 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
 
 			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
-			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			loss, seg_loss, score_loss, iou	= None, None, None, None
 			loss, ce, dice, focal, iou	= None, None, None, None, None
 			if 'labpic' in dataset_name:
-				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
 				loss_fn = InstanceSegmentationLoss(
 					alpha=0.5,   # Cross-Entropy weight
@@ -822,7 +839,7 @@ if __name__ == "__main__":
 				loss, seg_loss, score_loss, iou	= None, None, None, None
 				loss, ce, dice, focal, iou	= None, None, None, None, None
 				if 'labpic' in dataset_name:
-					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(masks, pred_masks, pred_scores, score_loss_weight=0.05)
+					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 				elif 'spread' in dataset_name:
 					loss_fn = InstanceSegmentationLoss(
 						alpha=0.5,   # Cross-Entropy weight

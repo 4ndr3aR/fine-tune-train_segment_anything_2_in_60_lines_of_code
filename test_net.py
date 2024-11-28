@@ -101,14 +101,22 @@ def predict(image, input_points):
 	# predict mask
 	with torch.no_grad():
 		predictor.set_image(image)
-		masks, scores, logits = predictor.predict(point_coords=input_points, point_labels=np.ones([input_points.shape[0],1]))
+		dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"Input points len	: {len(input_points)}")
+		dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+		dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"Input points	: {input_points}")
+		masks, scores, logits = predictor.predict(point_coords=input_points, point_labels=np.ones([input_points.shape[0], 1]))
 	return masks, scores, logits
 
 def sort_masks(masks, scores, min_max_size, debug=False):
 	# Sort predicted masks from high to low score
-	
+
+	dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"masks shape	: {masks.shape}")
 	masks=masks[:,0].astype(bool)
+	dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"masks shape	: {masks.shape}")
+	dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"scores shape	: {scores.shape}")
+	dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"scores		: {scores}")
 	sorted_masks = masks[np.argsort(scores[:,0])][::-1].astype(bool)
+	#sorted_masks = masks[np.argsort(scores)][::-1].astype(bool)
 	
 	# Stitch predicted mask into one segmentation mask
 	
@@ -130,6 +138,7 @@ def sort_masks(masks, scores, min_max_size, debug=False):
 
 def blend_images(image, seg_map, rgb_mask):
 	# create colored annotation map
+	dbgprint(Subsystem.PREDICT, LogLevel.INFO, f"Segmap shape	: {seg_map.shape}")
 	height, width = seg_map.shape
 	
 	# Create an empty RGB image for the colored annotation
@@ -185,6 +194,14 @@ def load_and_process_image(imgfn, mskfn, num_samples, debug_masks=False):	# para
 		cv2_waitkey_wrapper()
 
 	input_points = get_points(rgb_mask, num_samples)
+	#dbgprint(dataloader, LogLevel.INFO, f"Input points len	: {len(input_points)}")
+	#dbgprint(dataloader, LogLevel.INFO, f"Input points	: {input_points}")
+	#for itm in input_points:
+	#	print(f'type: {type(itm)} - value: {itm} - value[0]: {itm[0]}')
+	#input_points = np.array([itm[0] for itm in input_points])
+	#dbgprint(dataloader, LogLevel.INFO, f"Input points len	: {len(input_points)}")
+	dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+	dbgprint(dataloader, LogLevel.INFO, f"Input points	: {input_points}")
 	return (image, mask, rgb_mask, input_points, imgfn, mskfn)
 
 def parallelize_image_processing(image_files, mask_files, num_samples, debug_masks=False):
