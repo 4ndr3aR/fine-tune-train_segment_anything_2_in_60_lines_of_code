@@ -166,6 +166,15 @@ class PromptEncoder(nn.Module):
         )
         if points is not None:
             coords, labels = points
+            #print(f'coords.shape: {coords.shape}, labels.shape: {labels.shape}')
+            #print(f'coords: {coords}, labels: {labels}')
+            # coords.shape: torch.Size([2, 1, 2]), labels.shape: torch.Size([2, 1])
+            # coords: tensor([[[454., 353.]], [[298., 272.]]], device='cuda:0')
+            # labels: tensor([[1],[1]], device='cuda:0', dtype=torch.int32)
+            # coords.shape: torch.Size([2, 30, 2]), labels.shape: torch.Size([2, 1])
+            # coords: tensor([[[2.9800e+02, 3.2200e+02],
+            #        [1.7400e+02, 4.3800e+02],
+            #        [1.7300e+02, 3.5800e+02],
             point_embeddings = self._embed_points(coords, labels, pad=(boxes is None))
             sparse_embeddings = torch.cat([sparse_embeddings, point_embeddings], dim=1)
         if boxes is not None:

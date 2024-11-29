@@ -63,16 +63,21 @@ print(f'Loading dbgprint...')
 from dbgprint import dbgprint
 from dbgprint import *
 
+#from instance_seg_loss import convert_mask_to_binary_masks, calculate_iou, InstanceSegmentationLoss
+from instance_seg_loss import InstanceSegmentationLoss
+
+
+
 print(f'Loading utils functions...')
 from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, extract_points_outside_region, draw_points_on_image, replace_bg_color
 
-class InstanceSegmentationLoss(nn.Module):
+class InstanceSegmentationLoss2(nn.Module):
 	def __init__(self, 
 			 alpha=1.0,   # Cross-Entropy loss weight
 			 beta =1.0,   # Dice loss weight
 			 gamma=1.0,   # Focal loss weight
 			 delta=1.0):  # IoU loss weight
-		super(InstanceSegmentationLoss, self).__init__()
+		super(InstanceSegmentationLoss2, self).__init__()
 		self.alpha = alpha
 		self.beta  = beta
 		self.gamma = gamma
@@ -214,7 +219,7 @@ def loss_example_usage():
     target = torch.randint(0, num_classes, (batch_size, height, width))
     
     # Initialize loss with custom weights
-    loss_fn = InstanceSegmentationLoss(
+    loss_fn2 = InstanceSegmentationLoss2(
         alpha=1.0,   # Cross-Entropy weight
         beta=0.5,    # Dice loss weight
         gamma=0.75,  # Focal loss weight
@@ -222,7 +227,7 @@ def loss_example_usage():
     )
     
     # Compute total loss
-    total_loss = loss_fn(pred, target)
+    total_loss = loss_fn2(pred, target)
     print(f"Total Loss: {total_loss.item()}")
 
 # Uncomment to run example
@@ -441,8 +446,8 @@ class SpreadDataset(Dataset):
 		#cv2.waitKey()
 
 
-		num_samples = 30
-		#num_samples = 1
+		#num_samples = 30
+		num_samples = 1
 
 		'''
 		rgb_mask	= to_rgb(ann_map)
@@ -624,13 +629,15 @@ def validate(predictor, val_loader):
 			if 'labpic' in dataset_name:
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
-				loss_fn = InstanceSegmentationLoss(
+				loss_fn  = InstanceSegmentationLoss()
+				new_loss = loss_fn(pred_masks, masks)
+				loss_fn2 = InstanceSegmentationLoss2(
 					alpha=0.5,   # Cross-Entropy weight
 					beta =1.0,   # Dice loss weight
 					gamma=1.0,   # Focal loss weight
 					delta=0.25   # IoU loss weight
 				)
-				loss, ce, dice, focal, iou = loss_fn(pred_masks, masks)
+				loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
 			else:
 				raise Exception(f"Unknown dataset: {dataset_name}")
 
@@ -846,13 +853,17 @@ if __name__ == "__main__":
 				if 'labpic' in dataset_name:
 					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 				elif 'spread' in dataset_name:
-					loss_fn = InstanceSegmentationLoss(
+					loss_fn  = InstanceSegmentationLoss()
+					tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+					new_loss = loss_fn(pred_masks, tgt_masks)
+					loss_fn2 = InstanceSegmentationLoss2(
 						alpha=0.5,   # Cross-Entropy weight
 						beta =1.0,   # Dice loss weight
 						gamma=1.0,   # Focal loss weight
 						delta=0.25   # IoU loss weight
 					)
-					loss, ce, dice, focal, iou = loss_fn(pred_masks, masks)
+					loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
+					loss = new_loss
 				else:
 					raise Exception(f"Unknown dataset: {dataset_name}")
 
