@@ -22,7 +22,9 @@ def parse_arguments():
 	parser.add_argument("--num_workers",	type=int,	default=48,		help="Number of worker threads (default: 16)")
 	parser.add_argument("--num_epochs",	type=int,	default=1000,		help="Number of training epochs (default: 1000)")
 	parser.add_argument("--batch_size",	type=int,	default=63,		help="Batch size for training (default: 63)")
-	parser.add_argument("--model_size",	type=str,	default='small',	help="Model size (default: small)", choices=['tiny', 'small', 'base', 'large'])
+	parser.add_argument("--model_size",	type=str,	default='small',	help="Model size (default: small)",
+								choices=['tiny', 'small', 'base', 'large'])
+	parser.add_argument("--model_dir",	type=str,	default='models',	help="Model save directory (default: ./models)")
 	parser.add_argument("--dataset_name",	type=str,	default="LabPicsV1",	help="Path to the dataset directory")
 	parser.add_argument("--use_wandb",	action="store_true",			help="Enable Weights & Biases logging (default: False)")
 	parser.add_argument("--lr",		type=float,	default=1e-5,		help="Learning rate (default: 1e-5)")
@@ -900,7 +902,7 @@ if __name__ == "__main__":
 							extra_loss_str = f'ce-{ce:.2f}-dice-{dice:.2f}-focal-{focal:.2f}'
 						else:
 							raise Exception(f"Unknown dataset: {dataset_name}")
-						model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
+						model_str = f"{model_dir}/{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
 						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
 						torch.save(predictor.model.state_dict(), model_str);
 	
@@ -940,6 +942,6 @@ if __name__ == "__main__":
 		if avg_val_loss < best_loss or avg_val_iou > best_iou:
 			best_loss = avg_val_loss
 			best_iou  = avg_val_iou
-			model_str = f"{sam2_checkpoint.replace('.pt','')}-{dataset_name}-validation-epoch-{epoch}-bs-{batch_size}-iou-{avg_val_iou:.3f}-best-loss-{avg_val_loss:.2f}-{extra_loss_str.replace(':','-').replace(' ','')}.pth"
+			model_str = f"{model_dir}/{sam2_checkpoint.replace('.pt','')}-{dataset_name}-validation-epoch-{epoch}-bs-{batch_size}-iou-{avg_val_iou:.3f}-best-loss-{avg_val_loss:.2f}-{extra_loss_str.replace(':','-').replace(' ','')}.pth"
 			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f"Saving model: {model_str}")
 			torch.save(predictor.model.state_dict(), model_str)

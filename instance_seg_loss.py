@@ -7,6 +7,8 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple
 
+import cv2
+
 def convert_mask_to_binary_masks(mask: np.ndarray) -> List[np.ndarray]:
     """
     Converts an instance mask (where each unique integer is an instance)
@@ -90,20 +92,41 @@ class InstanceSegmentationLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    # Example Usage
-    # Define a dummy prediction and ground truth masks
-    pred_mask = np.zeros((128, 128), dtype=np.int32)
-    pred_mask[20:70, 20:70] = 1
-    pred_mask[50:90, 60:110] = 2
+	# Example Usage
+	# Define a dummy prediction and ground truth masks
+	pred_mask = np.zeros((128, 128), dtype=np.int8)
+	pred_mask[20:70, 20:70] = 64
+	pred_mask[50:90, 60:110] = 127
 
-    true_mask = np.zeros((128, 128), dtype=np.int32)
-    true_mask[20:80, 10:70] = 1
-    true_mask[50:90, 50:110] = 2
+	true_mask = np.zeros((128, 128), dtype=np.int8)
+	true_mask[20:80, 20:70] = 64
+	true_mask[50:90, 50:110] = 127
 
-    pred_mask = torch.from_numpy(pred_mask)
-    true_mask = torch.from_numpy(true_mask)
+	tpred_mask = torch.from_numpy(pred_mask)
+	ttrue_mask = torch.from_numpy(true_mask)
 
-    # Calculate and print the loss
-    loss_fn = InstanceSegmentationLoss()
-    loss_value = loss_fn(pred_mask, true_mask)
-    print("Loss:", loss_value.item())  # Output will be close to zero for perfect overlaps
+	# Calculate and print the loss
+	loss_fn = InstanceSegmentationLoss()
+	loss_value = loss_fn(tpred_mask, ttrue_mask)
+	print("Loss:", loss_value.item())  # Output will be close to zero for perfect overlaps
+
+	cv2.imshow("pred_mask", pred_mask)
+	cv2.imshow("true_mask", true_mask)
+	cv2.waitKey(1)
+
+	imask_gt_fn	= 'instance-seg-loss-test/Tree1197_1720692273.png'
+	imask_gt	= cv2.imread(imask_gt_fn,	cv2.IMREAD_UNCHANGED)
+	loss_fn		= InstanceSegmentationLoss()
+
+	for idx in ['2', '3', '4', '5', '10']:
+		imask_pred_fn	= f'instance-seg-loss-test/Tree1197_1720692273-{idx}px.png'
+		imask_pred	= cv2.imread(imask_pred_fn,	cv2.IMREAD_UNCHANGED)
+	
+		loss_value	= loss_fn(torch.from_numpy(imask_pred), torch.from_numpy(imask_gt))
+		print(f"Loss-{idx}px:",           loss_value.item())
+	
+		cv2.imshow("imask-gt",            imask_gt)
+		cv2.imshow(f"imask-pred-{idx}px", imask_pred)
+		cv2.waitKey(1)
+	cv2.waitKey(0)
+
