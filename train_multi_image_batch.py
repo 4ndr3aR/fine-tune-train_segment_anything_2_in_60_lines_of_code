@@ -170,7 +170,10 @@ class InstanceSegmentationLoss(nn.Module):
 			#target = torch.stack([torch.tensor(target[i]) for i in range(len(target))], dim=0).reshape(pred.shape)
 			target = torch.tensor(np.array(target).astype(np.float32)).permute(0, 3, 1, 2).cuda()
 			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
-			target = torch.sigmoid(target)						# Turn logit map to probability map
+			#target = torch.sigmoid(target)						# Turn logit map to probability map
+			from torchvision import transforms
+			tfm_norm = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+			target = tfm_norm(target)
 			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
 			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target		: {target.shape}')
 
@@ -436,8 +439,8 @@ class SpreadDataset(Dataset):
 		#cv2.waitKey()
 
 
-		#num_samples = 30
-		num_samples = 1
+		num_samples = 30
+		#num_samples = 1
 
 		'''
 		rgb_mask	= to_rgb(ann_map)

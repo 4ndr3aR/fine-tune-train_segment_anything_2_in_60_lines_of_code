@@ -238,6 +238,7 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 		dbgprint(dataloader, LogLevel.INFO, f"Points shape	: {points.shape}")
 	if isinstance(points, list):
 		dbgprint(dataloader, LogLevel.INFO, f"Points len  	: {len(points)}")
+		points = np.array(points)
 	dbgprint(dataloader, LogLevel.INFO, f"Points		: {points}")
 	for item in points:
 		dbgprint(dataloader, LogLevel.INFO, f"Points item	: {item} - {type(item)} - {len(item)} - {item.shape}")
