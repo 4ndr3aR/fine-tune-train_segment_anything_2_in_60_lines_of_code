@@ -570,9 +570,11 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 								repeat_image=False,
 								high_res_features=high_res_features,)
 
-	dbgprint(predict, LogLevel.TRACE, f'5. - {low_res_masks.shape = } - {len(predictor._orig_hw) = }')
+	dbgprint(predict, LogLevel.INFO, f'5. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw = }')
+	dbgprint(predict, LogLevel.INFO, f'6. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape  = } - {low_res_masks[0].dtype = }')
 	# Upscale the masks to the original image resolution
 	pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
+	dbgprint(predict, LogLevel.INFO, f'7. - {type(pred_masks[0])  = } - {pred_masks[0].shape  = } - {pred_masks[0].dtype = }')
 
 	return pred_masks, pred_scores
 
