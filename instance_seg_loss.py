@@ -20,7 +20,9 @@ def convert_mask_to_binary_masks(mask: torch.Tensor) -> list[torch.Tensor]:
 
 	Returns: A list of boolean PyTorch Tensors representing the instance masks
 	"""
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Mask: {mask.shape} - {mask}")		# TODO: throwing away the rest of the batch...
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Mask: {mask.shape} - {mask}")
+	mask = mask.to(torch.int8)
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Mask: {mask.shape} - {mask}")
 	unique_instances = torch.unique(mask)
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Unique instances: {len(unique_instances)} - {unique_instances}")
 	binary_masks = []
@@ -70,7 +72,12 @@ class InstanceSegmentationLoss(nn.Module):
 		pred_binary_masks = convert_mask_to_binary_masks(pred_mask)
 		true_binary_masks = convert_mask_to_binary_masks(true_mask)
 
-		total_loss = torch.tensor(0.0, device=pred_mask.device)
+		#total_loss = torch.tensor(0.0, device=pred_mask.device, requires_grad=True)
+		#total_loss = torch.tensor(0.0, device=pred_mask.device)
+		#total_loss = torch.zeros(1, device=pred_mask.device, requires_grad=True)
+		mse_loss	= nn.MSELoss()
+		total_loss	= mse_loss(pred_mask, true_mask) / 1000.0		# Let's try this way...
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f"InstanceSegmentationLoss.forward() - {total_loss = }")
 		num_instances = 0.0
 
 		# Calculate loss for predicted mask vs. closest ground truth
@@ -80,6 +87,7 @@ class InstanceSegmentationLoss(nn.Module):
 				iou = calculate_iou(pred_binary_mask, true_binary_mask)
 				max_iou = torch.max(max_iou, iou)
 			total_loss += 1 - max_iou
+			#total_loss = torch.add(total_loss, (1 - max_iou))
 			num_instances += 1
 
 		# Calculate loss for ground truth masks vs. closest prediction
@@ -89,12 +97,14 @@ class InstanceSegmentationLoss(nn.Module):
 				iou = calculate_iou(pred_binary_mask, true_binary_mask)
 				max_iou = torch.max(max_iou, iou)
 			total_loss += 1 - max_iou
+			#total_loss = torch.add(total_loss, (1 - max_iou))
 			num_instances += 1
 
 		if num_instances == 0:
 			return torch.tensor(0.0, requires_grad=True, device=pred_mask.device)  # Avoid divide by zero
-		avg_loss = total_loss / num_instances
-		return avg_loss
+		#avg_loss = total_loss / num_instances
+		#return avg_loss
+		return total_loss
 
 if __name__ == '__main__':
 	# Example Usage

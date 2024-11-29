@@ -633,6 +633,7 @@ def validate(predictor, val_loader):
 			elif 'spread' in dataset_name:
 				loss_fn  = InstanceSegmentationLoss()
 				new_loss = loss_fn(pred_masks, masks)
+				dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
 				loss_fn2 = InstanceSegmentationLoss2(
 					alpha=0.5,   # Cross-Entropy weight
 					beta =1.0,   # Dice loss weight
@@ -724,6 +725,7 @@ if __name__ == "__main__":
 	num_epochs		= args.num_epochs
 	batch_size		= args.batch_size
 	model_size		= args.model_size
+	model_dir		= args.model_dir
 	dataset_name		= args.dataset_name
 	use_wandb		= args.use_wandb
 	lr			= args.lr
@@ -850,22 +852,28 @@ if __name__ == "__main__":
 				pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
 										mask_logits=None, normalize_coords=True)
 
-				loss, seg_loss, score_loss, iou	= None, None, None, None
-				loss, ce, dice, focal, iou	= None, None, None, None, None
+				loss, seg_loss, score_loss, iou	 = None, None, None, None
+				total_loss, ce, dice, focal, iou = None, None, None, None, None
+				#loss = torch.tensor(0.0, requires_grad=True).cuda()
+				loss = torch.tensor(0.0).cuda()
 				if 'labpic' in dataset_name:
 					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 				elif 'spread' in dataset_name:
 					loss_fn  = InstanceSegmentationLoss()
 					tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
 					new_loss = loss_fn(pred_masks, tgt_masks)
+					dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
 					loss_fn2 = InstanceSegmentationLoss2(
 						alpha=0.5,   # Cross-Entropy weight
 						beta =1.0,   # Dice loss weight
 						gamma=1.0,   # Focal loss weight
 						delta=0.25   # IoU loss weight
 					)
-					loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
-					loss = new_loss
+					total_loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
+					if total_loss is not None and total_loss > 0 and total_loss < 1000:
+						loss = new_loss + total_loss / 1000
+					else:
+						loss = new_loss
 				else:
 					raise Exception(f"Unknown dataset: {dataset_name}")
 
@@ -890,6 +898,7 @@ if __name__ == "__main__":
 	
 				# apply back propogation
 	
+				dbgprint(Subsystem.LOSS, LogLevel.INFO, f'Performing loss.backward() on: {loss = }')
 				predictor.model.zero_grad()					# empty gradient
 				scaler.scale(loss).backward()					# Backpropagate
 				scaler.step(optimizer)
