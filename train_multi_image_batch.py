@@ -360,22 +360,22 @@ class SpreadDataset(Dataset):
 		# Collect all data entries
 		data = []
 		for class_dir in os.listdir(data_dir):
-			dbgprint(dataloader, LogLevel.TRACE, f'Reading directory: {class_dir}')
+			dbgprint(dataloader, LogLevel.INFO, f'Reading directory: {class_dir}')
 			if not os.path.isdir(os.path.join(data_dir, class_dir)):
 				continue
 
 			rgb_dir = os.path.join(data_dir, class_dir, "rgb")
-			dbgprint(dataloader, LogLevel.TRACE, f'RGB directory: {rgb_dir}')
+			dbgprint(dataloader, LogLevel.INFO, f'RGB directory: {rgb_dir}')
 			if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
 				continue
 
 			instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
-			dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {instance_dir}')
+			dbgprint(dataloader, LogLevel.INFO, f'Instance segmentation directory: {instance_dir}')
 			if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
 				continue
 
 			segmentation_dir = os.path.join(data_dir, class_dir, "semantic_segmentation")
-			dbgprint(dataloader, LogLevel.TRACE, f'Instance segmentation directory: {segmentation_dir}')
+			dbgprint(dataloader, LogLevel.INFO, f'Instance segmentation directory: {segmentation_dir}')
 			if not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir):
 				continue
 
@@ -844,7 +844,7 @@ if __name__ == "__main__":
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-		data_dir	= Path("/mnt/raid1/dataset/spread")
+		data_dir	= Path("/mnt/raid1/dataset/spread/spread")
 		#data_dir	= Path("/tmp/ramdrive/spread-mini")
 		#data_dir	= Path("/tmp/ramdrive/spread-femto")
 		
