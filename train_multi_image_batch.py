@@ -844,9 +844,9 @@ if __name__ == "__main__":
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-		#data_dir	= Path("/mnt/raid1/dataset/spread")
+		data_dir	= Path("/mnt/raid1/dataset/spread")
 		#data_dir	= Path("/tmp/ramdrive/spread-mini")
-		data_dir	= Path("/tmp/ramdrive/spread-femto")
+		#data_dir	= Path("/tmp/ramdrive/spread-femto")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train")
 		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
