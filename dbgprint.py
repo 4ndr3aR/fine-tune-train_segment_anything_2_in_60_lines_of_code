@@ -108,8 +108,8 @@ enabled_subsystems = {
 	Subsystem.TEST:		LogLevel.TRACE,
 	Subsystem.DATALOADER:	LogLevel.INFO,
 	Subsystem.PREDICT:	LogLevel.INFO,
-	Subsystem.MAIN:		LogLevel.TRACE,
-	Subsystem.LOSS:		LogLevel.TRACE,
+	Subsystem.MAIN:		LogLevel.INFO,
+	Subsystem.LOSS:		LogLevel.INFO,
 	Subsystem.WIDEST____:	LogLevel.FATAL,		# match this one to the widest (longest string) one, so that it can always be used to calculate padding... (don't prepend with _)
 	# Add more subsystems and their minimum log levels here
 }

@@ -15,10 +15,12 @@ import argparse
 
 # ./train_multi_image_batch.py --gpu_id 0 --dataset_name spread --batch_size 2 --model_size small --lr 1e-3 --num_workers 1
 
+# ./train_multi_image_batch.py --dataset_name spread --batch_size 24 --num_workers 48 --lr 1e-3 --use_wandb
+
 def parse_arguments():
 	parser = argparse.ArgumentParser(description="Configuration for your script")
 
-	parser.add_argument("--gpu_id",		type=int,	default=0,		help="GPU ID to use (default: 0)")
+	parser.add_argument("--gpu_id",		type=str,	default='0,1',		help="GPU ID to use (default: 0)")
 	parser.add_argument("--num_workers",	type=int,	default=48,		help="Number of worker threads (default: 16)")
 	parser.add_argument("--num_epochs",	type=int,	default=1000,		help="Number of training epochs (default: 1000)")
 	parser.add_argument("--batch_size",	type=int,	default=63,		help="Batch size for training (default: 63)")
@@ -49,6 +51,10 @@ print(f'Loading torch...')
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+#from F import InterpolationMode
+from torchvision.transforms import Resize
+import torchvision.transforms.functional as TTF
 
 import pdb
 print(f'Loading cv2...')
@@ -94,10 +100,10 @@ class InstanceSegmentationLoss2(nn.Module):
 		Dice Loss for segmentation
 		"""
 
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - target		: {target}')			# the RGB instance seg. mask
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred		: {pred}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'dice_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'dice_loss() - target		: {target}')			# the RGB instance seg. mask
+		dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'dice_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'dice_loss() - pred		: {pred}')
 		'''
 		pred = torch.softmax(pred, dim=1)
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'dice_loss() - pred.shape	: {pred.shape}')
@@ -132,10 +138,10 @@ class InstanceSegmentationLoss2(nn.Module):
 		Intersection over Union (IoU) Loss
 		"""
 		pred = torch.softmax(pred, dim=1)
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - target		: {target}')			# the RGB instance seg. mask
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'iou_loss() - pred		: {pred}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'iou_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - target		: {target}')			# the RGB instance seg. mask
+		dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'iou_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
+		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - pred		: {pred}')
 
 		'''
 		target_one_hot = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2).float()
@@ -160,29 +166,29 @@ class InstanceSegmentationLoss2(nn.Module):
 
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - {type(pred) = }, {type(target) = }')
 		if isinstance(pred, torch.Tensor) or isinstance(pred, np.ndarray):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred.shape	: {pred.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - pred.shape	: {pred.shape}')
 		elif isinstance(pred, list):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred len		: {len(pred)}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - pred len		: {len(pred)}')
 		else:
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - pred		: {pred}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - pred		: {pred}')
 	
 		if isinstance(target, torch.Tensor) or isinstance(target, np.ndarray):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target.shape	: {target.shape}')
 		elif isinstance(target, list):
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target len	: {len(target)}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target len	: {len(target)}')
 		else:
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target		: {target}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target		: {target}')
 
 		if isinstance(target, list):
 			#target = torch.stack([torch.tensor(target[i]) for i in range(len(target))], dim=0).reshape(pred.shape)
 			target = torch.tensor(np.array(target).astype(np.float32)).permute(0, 3, 1, 2).cuda()
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target.shape	: {target.shape}')
 			#target = torch.sigmoid(target)						# Turn logit map to probability map
 			from torchvision import transforms
 			tfm_norm = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 			target = tfm_norm(target)
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target.shape	: {target.shape}')
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'forward() - target		: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target.shape	: {target.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'forward() - target		: {target}')
 
 
 		# Compute individual loss components
@@ -315,22 +321,23 @@ class LabPicsDataset(Dataset):
             point = [[0, 0]]  # Provide a default point
 
         dbgprint(dataloader, LogLevel.TRACE, f'{type(Img)} {type(mask)} {type(point)}')
-        dbgprint(dataloader, LogLevel.INFO, f"Input points len: {len(point)}")
-        dbgprint(dataloader, LogLevel.INFO, f"Input points: {point}")
+        dbgprint(dataloader, LogLevel.TRACE, f"Input points len: {len(point)}")
+        dbgprint(dataloader, LogLevel.TRACE, f"Input points: {point}")
         return Img, mask, point
 
 def collate_fn(data):
-	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 1. - {type(data)	= }	{len(data)	= }')
-	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 2. - {type(data[0])	= }	{len(data[0])	= }')
+	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 1. - {type(data)	= }	{len(data)	= }')
+	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 2. - {type(data[0])	= }	{len(data[0])	= }')
 	if len(data) > 1:
-		dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 3. - {type(data[1])	= }	{len(data[1])	= }')
+		dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 3. - {type(data[1])	= }	{len(data[1])	= }')
 	if len(data) > 2:
-		dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 4. - {type(data[2])	= }	{len(data[2])	= }')
-	imgs, masks, points = zip(*data)
-	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 5. - {type(imgs)	= }	{len(imgs)	= }')
-	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 6. - {type(masks)	= }	{len(masks)	= }')
-	dbgprint(dataloader, LogLevel.INFO, f'collate_fn() 7. - {type(points)	= }	{len(points)	= }')
-	return list(imgs), list(masks), list(points)
+		dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 4. - {type(data[2])	= }	{len(data[2])	= }')
+	imgs, masks, points, small_masks = zip(*data)
+	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 5. - {type(imgs)	= }	{len(imgs)	= }')
+	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 6. - {type(masks)	= }	{len(masks)	= }')
+	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 7. - {type(points)	= }	{len(points)	= }')
+	dbgprint(dataloader, LogLevel.INFO,  f'collate_fn() 8. - {type(small_masks) = }	{len(small_masks) = } - {small_masks[0].shape = }')
+	return list(imgs), list(masks), list(points), list(small_masks)
 
 class SpreadDataset(Dataset):
 	_data = None					# The whole dataset (filenames, imgs, seg. masks, instance seg. masks)
@@ -416,22 +423,22 @@ class SpreadDataset(Dataset):
 		dbgprint(dataloader, LogLevel.TRACE, f'Reading images: {ent["image"]} - {ent["instance"]} - {ent["segmentation"]}')
 		#img	= cv2.imread(ent["image"])[..., ::-1]					# Convert BGR to RGB
 		img	= ent["image"]
-		print(f"------------------- Image shape: {img.shape}")
+		#print(f"------------------- Image shape: {img.shape}")
 		if img is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading image: {ent["image"]}')
 		#ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)			# Read as is
 		#imask = cv2.imread(ent["instance"], cv2.IMREAD_GRAYSCALE)			# Read grayscale
 		#imask	= cv2.imread(ent["instance"],		cv2.IMREAD_UNCHANGED)		# Read as is
-		imask	= ent["instance"]
-		if imask is None:
+		small_mask = ent["instance"]
+		if small_mask is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading instance segmentation mask: {ent["instance"]}')
 		#imask	= replace_white_background_with_black(imask)
 		#smask	= cv2.imread(ent["segmentation"],	cv2.IMREAD_GRAYSCALE)		# Read grayscale
 
 		# Resize images and masks to the same resolution
 		img	= cv2.resize(img,	(self.width, self.height))
-		print(f"------------------- Resized image shape: {img.shape}")
-		imask	= cv2.resize(imask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
+		#print(f"------------------- Resized image shape: {img.shape}")
+		imask	= cv2.resize(small_mask,(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 		#smask	= cv2.resize(smask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 
 		#classes, freqs	= get_unique_classes  (imask, is_grayscale_img(imask))
@@ -464,16 +471,16 @@ class SpreadDataset(Dataset):
 		#input_points	= get_points_color(imask, num_samples, bg_color=[255, 255, 255])
 		input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
 		if isinstance(input_points, np.ndarray) or isinstance(input_points, torch.Tensor):
-			dbgprint(dataloader, LogLevel.INFO, f"Input points shape: {input_points.shape}")
+			dbgprint(dataloader, LogLevel.TRACE, f"Input points shape: {input_points.shape}")
 		if isinstance(input_points, list):
-			dbgprint(dataloader, LogLevel.INFO, f"Input points len  : {len(input_points)}")
-		dbgprint(dataloader, LogLevel.INFO, f"Input points: {input_points}")
+			dbgprint(dataloader, LogLevel.TRACE, f"Input points len  : {len(input_points)}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Input points: {input_points}")
 
-		if self.debug_input_points or True:
+		if self.debug_input_points:
 			imask	= draw_points_on_image(imask, input_points)
 			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
 			outfn	= Path('/tmp/spread-out-tmp') / str(Path(ent["image_fn"]).name[:-4]+'points.jpg')
-			dbgprint(dataloader, LogLevel.INFO, f'Writing mask with points: {outfn}')
+			dbgprint(dataloader, LogLevel.WARN, f'Writing mask with points: {outfn}')
 			cv2.imwrite(outfn, imask)
 		#input_points	= np.ravel(input_points)
 
@@ -503,7 +510,7 @@ class SpreadDataset(Dataset):
 		'''
 
 		#return img, ann_map, input_points
-		return img, imask, input_points
+		return img, imask, input_points, small_mask
 
 
 
@@ -614,7 +621,7 @@ def validate(predictor, val_loader):
 	total_focal_loss = 0
 	predictor.model.eval()
 	with torch.no_grad():
-		for itr, (images, masks, input_points) in enumerate(val_loader):
+		for itr, (images, masks, input_points, small_masks) in enumerate(val_loader):
 
 			input_points = torch.tensor(np.array(input_points)).cuda().float()
 			input_label  = torch.ones(input_points.shape[0], 1).cuda().float()		# create labels
@@ -627,10 +634,11 @@ def validate(predictor, val_loader):
 			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			loss, seg_loss, score_loss, iou	= None, None, None, None
-			loss, ce, dice, focal, iou	= None, None, None, None, None
+			total_oldseg_loss, ce, dice, focal, iou	= None, None, None, None, None
 			if 'labpic' in dataset_name:
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
+				'''
 				loss_fn  = InstanceSegmentationLoss()
 				new_loss = loss_fn(pred_masks, masks)
 				dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
@@ -641,6 +649,57 @@ def validate(predictor, val_loader):
 					delta=0.25   # IoU loss weight
 				)
 				loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
+				'''
+				loss_fn  = InstanceSegmentationLoss()
+
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{np.array(small_masks).shape  = } - {np.array(small_masks).dtype = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{pred_masks.shape  = } - {pred_masks.dtype = }')
+				resize_tfm = Resize((270, 480), TTF.InterpolationMode.NEAREST)
+				small_pred_masks = resize_tfm(pred_masks)
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+				#tgt_masks = cv2.resize(np.array(smasks), (256, 256), interpolation=cv2.INTER_NEAREST)
+				tgt_masks = torch.tensor(np.array(small_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{tgt_masks.shape  = } - {tgt_masks.dtype = }')
+				#small_pred_masks = cv2.resize(np.array(pred_masks), (256, 256), interpolation=cv2.INTER_NEAREST)
+				#small_pred_masks = torch.tensor(small_pred_masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+				new_loss = loss_fn(small_pred_masks, tgt_masks)
+				'''
+				tgt_masks = cv2.resize(np.array(masks), (256, 256), interpolation=cv2.INTER_NEAREST)
+				tgt_masks = torch.tensor(masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{tgt_masks.shape  = } - {tgt_masks.dtype = }')
+				#tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+				small_pred_masks = cv2.resize(np.array(pred_masks), (256, 256), interpolation=cv2.INTER_NEAREST)
+				small_pred_masks = torch.tensor(small_pred_masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+				new_loss = loss_fn(small_pred_masks, tgt_masks)
+				'''
+				dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
+				loss_fn2 = InstanceSegmentationLoss2(
+					alpha=0.5,   # Cross-Entropy weight
+					beta =1.0,   # Dice loss weight
+					gamma=1.0,   # Focal loss weight
+					delta=0.25   # IoU loss weight
+				)
+				total_oldseg_loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
+				if total_oldseg_loss is not None and total_oldseg_loss > 0 and total_oldseg_loss < 1000:
+					loss = new_loss + total_oldseg_loss / 1000
+				else:
+					loss = new_loss
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 			else:
 				raise Exception(f"Unknown dataset: {dataset_name}")
 
@@ -652,15 +711,21 @@ def validate(predictor, val_loader):
 					})
 				if 'labpic' in dataset_name:
 					wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+					if itr == 0:
+						wandb_log_masked_images(images, masks, pred_masks, pred_scores)
 				elif 'spread' in dataset_name:
 					wandb.log({"ce": ce, "dice": dice, "focal": focal})
 				else:
 					raise Exception(f"Unknown dataset: {dataset_name}")
 				if itr == 0:
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
-					dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
-
-					wandb_log_masked_images(images, masks, pred_masks, pred_scores)
+					dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
+					dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
+					wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+					wandb.log({"Imgs": wdb_imgs})
+					wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+					wandb.log({"GT": wdb_masks})
+					wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+					wandb.log({"Preds": wdb_pred_masks})
 
 
 			total_loss		+= loss.item()
@@ -703,10 +768,10 @@ def wandb_log_masked_images(images, masks, pred_masks, pred_scores):
 		gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).detach().cpu().numpy()
 		#prd_msk  = torch.sigmoid(pred_mask[:, 0]).detach().cpu().numpy()
 		prd_msk  = torch.where(pred_mask >= .5, pred_mask, torch.zeros_like(pred_mask)).softmax(dim=0).argmax(dim=0).detach().cpu().numpy()
-		dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'7. - {gt_msk.shape = } - {prd_msk.shape = } - {pred_score.shape = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'8. - {gt_msk = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'9. - {prd_msk = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'0. - {pred_score = }')
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'7. - {gt_msk.shape = } - {prd_msk.shape = } - {pred_score.shape = }')
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'8. - {gt_msk = }')
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'9. - {prd_msk = }')
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'0. - {pred_score = }')
 		
 		masked_img = wandb.Image(img, masks={
 							"prediction":	{"mask_data": prd_msk, "class_labels": class_labels},
@@ -830,7 +895,7 @@ if __name__ == "__main__":
 	mean_iou  = 0
 	
 	for epoch in range(num_epochs):  # Example: 100 epochs
-		for itr, (images, masks, input_points) in enumerate(train_loader):
+		for itr, (images, masks, input_points, small_masks) in enumerate(train_loader):
 			with torch.cuda.amp.autocast():							# cast to mix precision
 				# ... (training code remains largely the same, but use data from the loader)
 	
@@ -855,14 +920,30 @@ if __name__ == "__main__":
 				loss, seg_loss, score_loss, iou	 = None, None, None, None
 				total_loss, ce, dice, focal, iou = None, None, None, None, None
 				#loss = torch.tensor(0.0, requires_grad=True).cuda()
-				loss = torch.tensor(0.0).cuda()
+				#loss = torch.tensor(0.0).cuda()
 				if 'labpic' in dataset_name:
 					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 				elif 'spread' in dataset_name:
 					loss_fn  = InstanceSegmentationLoss()
-					tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
-					new_loss = loss_fn(pred_masks, tgt_masks)
+
+					#tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+					#new_loss = loss_fn(pred_masks, tgt_masks)
+
+					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{np.array(small_masks).shape  = } - {np.array(small_masks).dtype = }')
+					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{pred_masks.shape  = } - {pred_masks.dtype = }')
+					resize_tfm = Resize((270, 480), TTF.InterpolationMode.NEAREST)
+					small_pred_masks = resize_tfm(pred_masks)
+					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+					#tgt_masks = cv2.resize(np.array(smasks), (256, 256), interpolation=cv2.INTER_NEAREST)
+					tgt_masks = torch.tensor(np.array(small_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{tgt_masks.shape  = } - {tgt_masks.dtype = }')
+					#small_pred_masks = cv2.resize(np.array(pred_masks), (256, 256), interpolation=cv2.INTER_NEAREST)
+					#small_pred_masks = torch.tensor(small_pred_masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+					new_loss = loss_fn(small_pred_masks, tgt_masks)
+
 					dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
+
 					loss_fn2 = InstanceSegmentationLoss2(
 						alpha=0.5,   # Cross-Entropy weight
 						beta =1.0,   # Dice loss weight
@@ -885,6 +966,8 @@ if __name__ == "__main__":
 						})
 					if 'labpic' in dataset_name:
 						wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+						if itr == 0:
+							wandb_log_masked_images(images, masks, pred_masks, pred_scores)
 					elif 'spread' in dataset_name:
 						wandb.log({"ce": ce, "dice": dice, "focal": focal})
 					else:
@@ -892,9 +975,22 @@ if __name__ == "__main__":
 					if itr == 0:
 						#wandb_images = wandb.Image(images, caption="Validation 1st batch")
 						#wandb.log({"examples": images})
-						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
-						dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
-						wandb_log_masked_images(images, masks, pred_masks, pred_scores)
+						dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
+						dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
+						'''
+						wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"imgs": wdb_imgs})
+						wdb_masks = wandb.Image(masks[0], caption=f"Mask-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"imgs": wdb_masks})
+						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Preds-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"imgs": wdb_pred_masks})
+						'''
+						wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"Imgs": wdb_imgs})
+						wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"GT": wdb_masks})
+						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"Preds": wdb_pred_masks})
 	
 				# apply back propogation
 	

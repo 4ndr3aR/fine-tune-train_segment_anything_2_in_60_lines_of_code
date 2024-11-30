@@ -83,7 +83,7 @@ def to_rgb(mask):
 		rgb_mask[:,:,0]	= copy.deepcopy(mask)
 		rgb_mask[:,:,1]	= copy.deepcopy(mask)
 		rgb_mask[:,:,2]	= copy.deepcopy(mask)
-		dbgprint(dataloader, LogLevel.INFO, f"RGB mask shape	: {rgb_mask.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"RGB mask shape	: {rgb_mask.shape}")
 	else:
 		rgb_mask	= mask
 	return rgb_mask
@@ -194,7 +194,7 @@ def extract_points_outside_region(mask, num_points, bg_color=[0, 0, 0]):
 	# Ensure the input is a numpy array
 	mask = np.asarray(mask)
 	#not_bg = not_this_color(mask, bg_color)
-	dbgprint(dataloader, LogLevel.INFO, f"extract_points_outside_region() - Mask shape: {mask.shape}")
+	dbgprint(dataloader, LogLevel.TRACE, f"extract_points_outside_region() - Mask shape: {mask.shape}")
 	
 	# Check that the mask has the correct shape (H x W x 3)
 	if mask.ndim != 3 or mask.shape[2] != 3:
@@ -233,20 +233,20 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 	- The image with the points drawn on it.
 	"""
 
-	dbgprint(dataloader, LogLevel.INFO, f"Points type	: {type(points)}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Points type	: {type(points)}")
 	if isinstance(points, np.ndarray) or isinstance(points, torch.Tensor):
-		dbgprint(dataloader, LogLevel.INFO, f"Points shape	: {points.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Points shape	: {points.shape}")
 	if isinstance(points, list):
-		dbgprint(dataloader, LogLevel.INFO, f"Points len  	: {len(points)}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Points len  	: {len(points)}")
 		points = np.array(points)
-	dbgprint(dataloader, LogLevel.INFO, f"Points		: {points}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Points		: {points}")
 	for item in points:
-		dbgprint(dataloader, LogLevel.INFO, f"Points item	: {item} - {type(item)} - {len(item)} - {item.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Points item	: {item} - {type(item)} - {len(item)} - {item.shape}")
 		if len(item) == 1 and item.shape[1] == 2:
 			x, y = item[0]
 		else:
 			x, y = item
-		dbgprint(dataloader, LogLevel.INFO, f"Drawing circle at	: {x} {y}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Drawing circle at	: {x} {y}")
 		cv2.circle(image, (x, y), radius, color, thickness)
 	return image
 
