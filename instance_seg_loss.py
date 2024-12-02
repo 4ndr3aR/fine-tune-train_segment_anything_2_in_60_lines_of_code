@@ -11,6 +11,20 @@ import cv2
 from dbgprint import dbgprint
 from dbgprint import *
 
+
+def sort_masks_by_white_count(masks):
+    # Create a list of tuples where each tuple contains the mask and its count of True values
+    masks_with_counts = [(mask, torch.sum(mask)) for mask in masks]
+    
+    # Sort the list of tuples by the count of True values in descending order
+    masks_with_counts_sorted = sorted(masks_with_counts, key=lambda x: x[1], reverse=True)
+    
+    # Extract the sorted masks from the list of tuples
+    sorted_masks = [mask for mask, _ in masks_with_counts_sorted]
+    
+    return sorted_masks
+
+
 def convert_mask_to_binary_masks(_mask: torch.Tensor, device='cuda:0') -> list[torch.Tensor]:
 	"""
 	Converts an instance mask (where each unique integer is an instance)
@@ -182,6 +196,19 @@ if __name__ == '__main__':
 	imask_gt	= cv2.imread(imask_gt_fn,	cv2.IMREAD_UNCHANGED)
 	loss_fn		= InstanceSegmentationLoss()
 
+	# Assuming `convert_mask_to_binary_masks` outputs a list of boolean tensors
+	bin_masks	= convert_mask_to_binary_masks(torch.from_numpy(imask_gt).to(dtype).to(device))
+	sorted_bin_masks= sort_masks_by_white_count(bin_masks)
+	for idx, mask in enumerate(sorted_bin_masks):
+		print(f'mask-{idx}: {mask.shape} - {mask.type()}')
+		cv2.imshow(f"mask-{idx}", mask.to(torch.uint8).cpu().numpy() * 255)
+		if idx >= 10:
+			cv2.waitKey(10000000)
+		#loss_value	= loss_fn(torch.from_numpy(mask).to(dtype).to(device), torch.from_numpy(imask_gt).to(dtype).to(device))
+		#dbgprint(Subsystem.MAIN, LogLevel.INFO, f"Loss: {loss_value.item()}")  # Output will be close to zero for perfect overlaps
+		#loss_value.backward()
+	sys.exit(0)
+
 	for idx in ['2', '3', '4', '5', '10']:
 		imask_pred_fn	= f'instance-seg-loss-test/Tree1197_1720692273-{idx}px.png'
 		imask_pred	= cv2.imread(imask_pred_fn,	cv2.IMREAD_UNCHANGED)
@@ -197,3 +224,4 @@ if __name__ == '__main__':
 	if show_images:
 		cv2.waitKey(0)
 
+	
