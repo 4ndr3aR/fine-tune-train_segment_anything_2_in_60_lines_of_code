@@ -1084,6 +1084,8 @@ if __name__ == "__main__":
 						model_str = f"{model_dir}/{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
 						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
 						torch.save(predictor.model.state_dict(), model_str);
+				del images, masks, pred_masks, pred_scores, loss, iou
+				images, masks, pred_masks, pred_scores, loss, iou = None, None, None, None, None, None	
 	
 		#avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
 		if 'labpic' in dataset_name:
