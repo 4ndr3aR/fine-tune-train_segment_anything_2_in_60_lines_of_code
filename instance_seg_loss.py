@@ -38,12 +38,12 @@ def convert_mask_to_binary_masks(_mask: torch.Tensor, device='cuda:0') -> list[t
 	src_dev	= _mask.device
 	mask	= _mask.to(device)
 
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f"Mask: {mask.shape} - {mask}")
-	mask = mask.to(torch.int8)
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f"Mask: {mask.shape} - {mask}")
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Mask: {mask.shape} - {mask}")
+	mask = mask.to(torch.uint8)
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Mask: {mask.shape} - {mask}")
 	unique_instances = torch.unique(mask)
-	dbgprint(Subsystem.LOSS, LogLevel.INFO,  f"Unique instances: {len(unique_instances)}")
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f"Unique instances: {unique_instances}")
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Unique instances: {len(unique_instances)}")
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Unique instances: {unique_instances}")
 	binary_masks = []
 	for idx, instance_id in enumerate(unique_instances):
 		if instance_id == 0:  # skip background
@@ -51,6 +51,7 @@ def convert_mask_to_binary_masks(_mask: torch.Tensor, device='cuda:0') -> list[t
 		if idx % 100 == 0:
 			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f"Processing instance {idx} of {len(unique_instances)}")
 		binary_mask = (mask == instance_id)
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f"Binary mask: {binary_mask.shape} - {binary_mask.dtype}")
 		binary_masks.append(binary_mask.to(device))		# leave them on the device
 	return binary_masks
 
@@ -141,32 +142,8 @@ class InstanceSegmentationLoss(nn.Module):
 		#return avg_loss
 		return total_loss.to(device=pred_mask.device)
 
-if __name__ == '__main__':
 
-	show_images = False
-	device      = 'cuda:1'
-	#device      = 'cpu'
-	dtype       = torch.float32
-	#dtype       = torch.int8
-
-	# Example Usage
-	# Define a dummy prediction and ground truth masks
-	pred_mask = torch.zeros((128, 128), dtype=dtype).to(device)
-	pred_mask[20:70, 20:70] = 1
-	pred_mask[50:90, 60:110] = 2
-
-	true_mask = torch.zeros((128, 128), dtype=dtype).to(device)
-	true_mask[20:80, 10:70] = 1
-	true_mask[50:90, 50:110] = 2
-
-	# Calculate and print the loss
-	loss_fn = InstanceSegmentationLoss()
-	loss_value = loss_fn(pred_mask, true_mask)
-	#print(f'{loss_value.backward() = }')
-	#print("Loss:", loss_value.item())  # Output will be close to zero for perfect overlaps
-	dbgprint(Subsystem.MAIN, LogLevel.INFO, f"Loss: {loss_value.item()}")  # Output will be close to zero for perfect overlaps
-	loss_value.backward()
-
+def testOldInstanceSegmentationLoss():
 	# Example Usage
 	# Define a dummy prediction and ground truth masks
 	pred_mask = torch.zeros((128, 128), dtype=dtype).to(device)
@@ -199,10 +176,25 @@ if __name__ == '__main__':
 	# Assuming `convert_mask_to_binary_masks` outputs a list of boolean tensors
 	bin_masks	= convert_mask_to_binary_masks(torch.from_numpy(imask_gt).to(dtype).to(device))
 	sorted_bin_masks= sort_masks_by_white_count(bin_masks)
+	dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"sorted_bin_masks: {len(sorted_bin_masks)}")
+	dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"sorted_bin_masks: {sorted_bin_masks[0].shape} - {sorted_bin_masks[0].type()}")
+	#torch.set_printoptions(profile="full")
+	dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"sorted_bin_masks: {sorted_bin_masks[0]}")
 	for idx, mask in enumerate(sorted_bin_masks):
 		print(f'mask-{idx}: {mask.shape} - {mask.type()}')
-		cv2.imshow(f"mask-{idx}", mask.to(torch.uint8).cpu().numpy() * 255)
-		if idx >= 10:
+		uint8_mask = mask.to(torch.uint8).cpu().numpy()
+		rescaled_uint8_mask = uint8_mask * 255
+		#rescaled_uint8_mask[150:160, 10:20] = 255
+		cv2.imshow(f"mask-{idx}", rescaled_uint8_mask)
+		if idx == 0:
+			dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"uint8_mask: {uint8_mask}")
+			dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"rescaled_uint8_mask: {rescaled_uint8_mask}")
+			slices = [slice(0,30), slice(140,170)]
+			dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"sorted_bin_masks(slice): {sorted_bin_masks[0][slices[0], slices[1]]}")
+			dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"uint8_mask(slice): {uint8_mask[slices[0], slices[1]]}")
+			dbgprint(Subsystem.MAIN, LogLevel.TRACE, f"rescaled_uint8_mask:(slice) {rescaled_uint8_mask[slices[0], slices[1]]}")
+			cv2.imshow(f"sliced-mask-{idx}", rescaled_uint8_mask[slices[0], slices[1]])
+		if idx % 2 == 0 and idx > 0:
 			cv2.waitKey(10000000)
 		#loss_value	= loss_fn(torch.from_numpy(mask).to(dtype).to(device), torch.from_numpy(imask_gt).to(dtype).to(device))
 		#dbgprint(Subsystem.MAIN, LogLevel.INFO, f"Loss: {loss_value.item()}")  # Output will be close to zero for perfect overlaps
@@ -224,4 +216,32 @@ if __name__ == '__main__':
 	if show_images:
 		cv2.waitKey(0)
 
+
+if __name__ == '__main__':
+
+	show_images = False
+	device      = 'cuda:1'
+	#device      = 'cpu'
+	dtype       = torch.float32
+	#dtype       = torch.int8
+
+	# Example Usage
+	# Define a dummy prediction and ground truth masks
+	pred_mask = torch.zeros((128, 128), dtype=dtype).to(device)
+	pred_mask[20:70, 20:70] = 1
+	pred_mask[50:90, 60:110] = 2
+
+	true_mask = torch.zeros((128, 128), dtype=dtype).to(device)
+	true_mask[20:80, 10:70] = 1
+	true_mask[50:90, 50:110] = 2
+
+	# Calculate and print the loss
+	loss_fn = InstanceSegmentationLoss()
+	loss_value = loss_fn(pred_mask, true_mask)
+	#print(f'{loss_value.backward() = }')
+	#print("Loss:", loss_value.item())  # Output will be close to zero for perfect overlaps
+	dbgprint(Subsystem.MAIN, LogLevel.INFO, f"Loss: {loss_value.item()}")  # Output will be close to zero for perfect overlaps
+	loss_value.backward()
+
+	testOldInstanceSegmentationLoss()
 	
