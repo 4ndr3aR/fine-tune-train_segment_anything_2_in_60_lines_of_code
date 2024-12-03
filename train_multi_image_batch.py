@@ -690,8 +690,8 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
 
-			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
-			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
 			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
@@ -821,6 +821,165 @@ def validate(predictor, val_loader):
 
 	#return avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, itr
 	return itr, avg_val_loss, avg_val_iou, extra_loss_str, *extra_loss_values
+
+
+def training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, epoch, itr, best_loss, best_iou, mean_iou):
+	dbgprint(train, LogLevel.INFO, f'Reading batch no. {itr}: {len(images)} - {len(masks)} - {len(small_masks)} - {len(input_points)}')
+	
+	dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
+	dbgprint(train, LogLevel.TRACE, f'{len(images)  = } {len(masks)  = } {len(input_points) = }')
+	input_points = torch.tensor(np.array(input_points)).cuda().float()
+	#input_label  = torch.ones(input_points.shape[0], 1).cuda().float() # create labels
+	if 'labpic' in dataset_name:
+		input_label  = torch.ones(input_points.shape[0], 1).cuda().float()				# create just one label!
+	elif 'spread' in dataset_name:
+		input_label  = torch.ones(input_points.shape[0], input_points.shape[1]).cuda().float()		# create as many labels as input points
+	else:
+		raise Exception(f"Unknown dataset: {dataset_name}")
+	
+	if isinstance(images, list):
+		if len(images)==0:
+			dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
+			#continue					# ignore empty batches
+			return						# ignore empty batches
+	if isinstance(masks, list):
+		if len(masks)==0:
+			dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
+			#continue					# ignore empty batches
+			return						# ignore empty batches
+	if isinstance(masks, torch.Tensor):
+		if masks.shape[0]==0:
+			dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
+			#continue					# ignore empty batches
+			return						# ignore empty batches
+	
+	dbgprint(train, LogLevel.TRACE, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_points) = }')
+	dbgprint(train, LogLevel.TRACE, f'2. - {len(images)     = } - {len(masks)      = } - {len(input_points) = }')
+	dbgprint(train, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype = }')
+	dbgprint(train, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
+	
+	dbgprint(train, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
+	dbgprint(train, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
+
+	pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
+							mask_logits=None, normalize_coords=True)
+
+	loss, seg_loss, score_loss, iou	 = None, None, None, None
+	total_loss, ce, dice, focal, iou = None, None, None, None, None
+	#loss = torch.tensor(0.0, requires_grad=True).cuda()
+	#loss = torch.tensor(0.0).cuda()
+	if 'labpic' in dataset_name:
+		loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+	elif 'spread' in dataset_name:
+		loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+		'''
+		loss_fn  = InstanceSegmentationLoss()
+
+		#tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+		#new_loss = loss_fn(pred_masks, tgt_masks)
+
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{np.array(small_masks).shape  = } - {np.array(small_masks).dtype = }')
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{pred_masks.shape  = } - {pred_masks.dtype = }')
+		resize_tfm = Resize((270, 480), TTF.InterpolationMode.NEAREST)
+		small_pred_masks = resize_tfm(pred_masks)
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+		#tgt_masks = cv2.resize(np.array(smasks), (256, 256), interpolation=cv2.INTER_NEAREST)
+		tgt_masks = torch.tensor(np.array(small_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{tgt_masks.shape  = } - {tgt_masks.dtype = }')
+		#small_pred_masks = cv2.resize(np.array(pred_masks), (256, 256), interpolation=cv2.INTER_NEAREST)
+		#small_pred_masks = torch.tensor(small_pred_masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
+		new_loss = loss_fn(small_pred_masks, tgt_masks)
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
+
+		loss_fn2 = InstanceSegmentationLoss2(
+			alpha=0.5,   # Cross-Entropy weight
+			beta =1.0,   # Dice loss weight
+			gamma=1.0,   # Focal loss weight
+			delta=0.25   # IoU loss weight
+		)
+		total_loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
+		if total_loss is not None and total_loss > 0 and total_loss < 1000:
+			loss = new_loss + total_loss / 1000
+		else:
+			loss = new_loss
+		'''
+	else:
+		raise Exception(f"Unknown dataset: {dataset_name}")
+
+	if use_wandb:
+		wandb.log({
+				"loss": loss, "best_loss": best_loss,
+				"iou": iou.mean().item(), "mean_iou": mean_iou, "best_iou": best_iou,
+				"epoch": epoch, "itr": itr,
+			})
+		if 'labpic' in dataset_name:
+			wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+			if itr == 0:
+				wandb_log_masked_images(images, masks, pred_masks, pred_scores)
+		elif 'spread' in dataset_name:
+			#wandb.log({"ce": ce, "dice": dice, "focal": focal})
+			wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
+			wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"Imgs": wdb_imgs})
+			wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"GT": wdb_masks})
+			wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"Preds": wdb_pred_masks})
+		else:
+			raise Exception(f"Unknown dataset: {dataset_name}")
+		if itr == 0:
+			#wandb_images = wandb.Image(images, caption="Validation 1st batch")
+			#wandb.log({"examples": images})
+			dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
+			dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
+			'''
+			wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"imgs": wdb_imgs})
+			wdb_masks = wandb.Image(masks[0], caption=f"Mask-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"imgs": wdb_masks})
+			wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Preds-epoch-{epoch}-itr-{itr}-1st-batch")
+			wandb.log({"imgs": wdb_pred_masks})
+			'''
+	
+	# apply back propogation
+	
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'Performing loss.backward() on: {loss = }')
+	predictor.model.zero_grad()					# empty gradient
+	scaler.scale(loss).backward()					# Backpropagate
+	scaler.step(optimizer)
+	scaler.update()							# Mix precision
+	
+	# Display results
+	
+	mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
+	if 'labpic' in dataset_name:
+		extra_loss = f'seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f}'
+	elif 'spread' in dataset_name:
+		#extra_loss = f'ce: {ce:.2f} - dice: {dice:.2f} - focal: {focal:.2f}'
+		extra_loss = f'seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f}'
+	else:
+		raise Exception(f"Unknown dataset: {dataset_name}")
+	dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - {extra_loss} - best_loss: {best_loss:.2f}")
+	if itr % 10 == 0:
+		if loss < best_loss:
+			# save the model
+			best_loss = loss
+			if 'labpic' in dataset_name:
+				extra_loss_str = f'segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}'
+			elif 'spread' in dataset_name:
+				#extra_loss_str = f'ce-{ce:.2f}-dice-{dice:.2f}-focal-{focal:.2f}'
+				extra_loss_str = f'segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}'
+			else:
+				raise Exception(f"Unknown dataset: {dataset_name}")
+			model_str = f"{model_dir}/{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
+			dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
+			torch.save(predictor.model.state_dict(), model_str);
+	del images, masks, pred_masks, pred_scores, loss, iou
+	images, masks, pred_masks, pred_scores, loss, iou = None, None, None, None, None, None	
+
+
 
 
 def wandb_log_masked_images(images, masks, pred_masks, pred_scores):
@@ -963,157 +1122,7 @@ if __name__ == "__main__":
 	for epoch in range(num_epochs):  # Example: 100 epochs
 		for itr, (images, masks, input_points, small_masks) in enumerate(train_loader):
 			with torch.cuda.amp.autocast():							# cast to mix precision
-				dbgprint(train, LogLevel.INFO, f'Reading batch no. {itr}: {len(images)} - {len(masks)} - {len(small_masks)} - {len(input_points)}')
-	
-				dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
-				dbgprint(train, LogLevel.TRACE, f'{len(images)  = } {len(masks)  = } {len(input_points) = }')
-				input_points = torch.tensor(np.array(input_points)).cuda().float()
-				#input_label  = torch.ones(input_points.shape[0], 1).cuda().float() # create labels
-				if 'labpic' in dataset_name:
-					input_label  = torch.ones(input_points.shape[0], 1).cuda().float()				# create just one label!
-				elif 'spread' in dataset_name:
-					input_label  = torch.ones(input_points.shape[0], input_points.shape[1]).cuda().float()		# create as many labels as input points
-				else:
-					raise Exception(f"Unknown dataset: {dataset_name}")
-	
-				if isinstance(images, list):
-					if len(images)==0:
-						dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
-						continue					# ignore empty batches
-				if isinstance(masks, list):
-					if len(masks)==0:
-						dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
-						continue					# ignore empty batches
-				if isinstance(masks, torch.Tensor):
-					if masks.shape[0]==0:
-						dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
-						continue					# ignore empty batches
-	
-				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_points) = }')
-				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {len(images)     = } - {len(masks)      = } - {len(input_points) = }')
-				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype = }')
-				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
-	
-				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
-				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
-
-				pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
-										mask_logits=None, normalize_coords=True)
-
-				loss, seg_loss, score_loss, iou	 = None, None, None, None
-				total_loss, ce, dice, focal, iou = None, None, None, None, None
-				#loss = torch.tensor(0.0, requires_grad=True).cuda()
-				#loss = torch.tensor(0.0).cuda()
-				if 'labpic' in dataset_name:
-					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
-				elif 'spread' in dataset_name:
-					loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
-					'''
-					loss_fn  = InstanceSegmentationLoss()
-
-					#tgt_masks= torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
-					#new_loss = loss_fn(pred_masks, tgt_masks)
-
-					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{np.array(small_masks).shape  = } - {np.array(small_masks).dtype = }')
-					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{pred_masks.shape  = } - {pred_masks.dtype = }')
-					resize_tfm = Resize((270, 480), TTF.InterpolationMode.NEAREST)
-					small_pred_masks = resize_tfm(pred_masks)
-					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
-					#tgt_masks = cv2.resize(np.array(smasks), (256, 256), interpolation=cv2.INTER_NEAREST)
-					tgt_masks = torch.tensor(np.array(small_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
-					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{tgt_masks.shape  = } - {tgt_masks.dtype = }')
-					#small_pred_masks = cv2.resize(np.array(pred_masks), (256, 256), interpolation=cv2.INTER_NEAREST)
-					#small_pred_masks = torch.tensor(small_pred_masks.astype(np.float32)).permute(0, 3, 1, 2).cuda()
-					dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'{small_pred_masks.shape  = } - {small_pred_masks.dtype = }')
-					new_loss = loss_fn(small_pred_masks, tgt_masks)
-
-					dbgprint(Subsystem.LOSS, LogLevel.INFO, f'InstanceSegmentationLoss() returned {new_loss = }')
-
-					loss_fn2 = InstanceSegmentationLoss2(
-						alpha=0.5,   # Cross-Entropy weight
-						beta =1.0,   # Dice loss weight
-						gamma=1.0,   # Focal loss weight
-						delta=0.25   # IoU loss weight
-					)
-					total_loss, ce, dice, focal, iou = loss_fn2(pred_masks, masks)
-					if total_loss is not None and total_loss > 0 and total_loss < 1000:
-						loss = new_loss + total_loss / 1000
-					else:
-						loss = new_loss
-					'''
-				else:
-					raise Exception(f"Unknown dataset: {dataset_name}")
-
-				if use_wandb:
-					wandb.log({
-							"loss": loss, "best_loss": best_loss,
-							"iou": iou.mean().item(), "mean_iou": mean_iou, "best_iou": best_iou,
-							"epoch": epoch, "itr": itr,
-						})
-					if 'labpic' in dataset_name:
-						wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
-						if itr == 0:
-							wandb_log_masked_images(images, masks, pred_masks, pred_scores)
-					elif 'spread' in dataset_name:
-						#wandb.log({"ce": ce, "dice": dice, "focal": focal})
-						wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
-						wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"Imgs": wdb_imgs})
-						wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"GT": wdb_masks})
-						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"Preds": wdb_pred_masks})
-					else:
-						raise Exception(f"Unknown dataset: {dataset_name}")
-					if itr == 0:
-						#wandb_images = wandb.Image(images, caption="Validation 1st batch")
-						#wandb.log({"examples": images})
-						dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'5. - {type(images) = } - {type(masks) = } - {type(pred_masks) = } - {type(pred_scores) = }')
-						dbgprint(Subsystem.TRAIN, LogLevel.TRACE, f'6. - {len(images)  = } - {len(masks)  = } - {pred_masks.shape = } - {pred_scores.shape = }')
-						'''
-						wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"imgs": wdb_imgs})
-						wdb_masks = wandb.Image(masks[0], caption=f"Mask-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"imgs": wdb_masks})
-						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Preds-epoch-{epoch}-itr-{itr}-1st-batch")
-						wandb.log({"imgs": wdb_pred_masks})
-						'''
-	
-				# apply back propogation
-	
-				dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'Performing loss.backward() on: {loss = }')
-				predictor.model.zero_grad()					# empty gradient
-				scaler.scale(loss).backward()					# Backpropagate
-				scaler.step(optimizer)
-				scaler.update()							# Mix precision
-	
-				# Display results
-	
-				mean_iou = mean_iou * 0.99 + 0.01 * np.mean(iou.cpu().detach().numpy())
-				if 'labpic' in dataset_name:
-					extra_loss = f'seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f}'
-				elif 'spread' in dataset_name:
-					#extra_loss = f'ce: {ce:.2f} - dice: {dice:.2f} - focal: {focal:.2f}'
-					extra_loss = f'seg_loss: {seg_loss:.2f} - score_loss: {score_loss:.2f}'
-				else:
-					raise Exception(f"Unknown dataset: {dataset_name}")
-				dbgprint(train, LogLevel.INFO, f"step: {itr} - accuracy (IOU): {mean_iou:.2f} - loss: {loss:.2f} - {extra_loss} - best_loss: {best_loss:.2f}")
-				if itr % 10 == 0:
-					if loss < best_loss:
-						# save the model
-						best_loss = loss
-						if 'labpic' in dataset_name:
-							extra_loss_str = f'segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}'
-						elif 'spread' in dataset_name:
-							#extra_loss_str = f'ce-{ce:.2f}-dice-{dice:.2f}-focal-{focal:.2f}'
-							extra_loss_str = f'segloss-{seg_loss:.2f}-scoreloss-{score_loss:.2f}'
-						else:
-							raise Exception(f"Unknown dataset: {dataset_name}")
-						model_str = f"{model_dir}/{sam2_checkpoint.replace('.pt','')}-{dataset_name}-training-epoch-{epoch}-step-{itr}-bs-{batch_size}-iou-{mean_iou:.3f}-best-loss-{loss:.2f}-{extra_loss_str}.pth"
-						dbgprint(train, LogLevel.INFO, f"Saving model: {model_str}")
-						torch.save(predictor.model.state_dict(), model_str);
-				del images, masks, pred_masks, pred_scores, loss, iou
-				images, masks, pred_masks, pred_scores, loss, iou = None, None, None, None, None, None	
+				training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, epoch, itr, best_loss, best_iou, mean_iou)
 	
 		#avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
 		if 'labpic' in dataset_name:
