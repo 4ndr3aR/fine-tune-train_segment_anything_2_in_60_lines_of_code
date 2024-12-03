@@ -84,6 +84,8 @@ class PromptEncoder(nn.Module):
     ) -> torch.Tensor:
         """Embeds point prompts."""
         points = points + 0.5  # Shift to center of pixel
+        #print(f'PRE-PAD: points.shape: {points.shape}, labels.shape: {labels.shape}')
+        #print(f'PRE-PAD: points: {points}, labels: {labels}')
         if pad:
             padding_point = torch.zeros((points.shape[0], 1, 2), device=points.device)
             padding_label = -torch.ones((labels.shape[0], 1), device=labels.device)
@@ -92,6 +94,10 @@ class PromptEncoder(nn.Module):
         point_embedding = self.pe_layer.forward_with_coords(
             points, self.input_image_size
         )
+        #print(f'POST-PAD: points.shape: {points.shape}, labels.shape: {labels.shape}')
+        #print(f'POST-PAD: pt_emb.shape: {point_embedding.shape}')
+        #print(f'POST-PAD: points: {points}, labels: {labels}')
+        #print(f'POST-PAD: pt_emb: {point_embedding}')
         point_embedding[labels == -1] = 0.0
         point_embedding[labels == -1] += self.not_a_point_embed.weight
         point_embedding[labels == 0] += self.point_embeddings[0].weight

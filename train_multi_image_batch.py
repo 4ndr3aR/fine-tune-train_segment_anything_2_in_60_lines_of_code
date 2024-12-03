@@ -385,23 +385,28 @@ class SpreadDataset(Dataset):
 		for class_dir in os.listdir(data_dir):
 			dbgprint(dataloader, LogLevel.INFO, f'Reading directory: {class_dir}')
 			if not os.path.isdir(os.path.join(data_dir, class_dir)):
+				dbgprint(dataloader, LogLevel.WARNING, f'Scene directory not found or not accessible: {class_dir}')
 				continue
 
 			rgb_dir = os.path.join(data_dir, class_dir, "rgb")
 			dbgprint(dataloader, LogLevel.INFO, f'RGB directory: {rgb_dir}')
 			if not os.path.isdir(rgb_dir) or not os.path.exists(rgb_dir):
+				dbgprint(dataloader, LogLevel.WARNING, f'RGB directory not found or not accessible: {rgb_dir}')
 				continue
 
 			instance_dir = os.path.join(data_dir, class_dir, "instance_segmentation")
 			dbgprint(dataloader, LogLevel.INFO, f'Instance segmentation directory: {instance_dir}')
 			if not os.path.isdir(instance_dir) or not os.path.exists(instance_dir):
+				dbgprint(dataloader, LogLevel.WARNING, f'Instance segmentation directory not found or not accessible: {instance_dir}')
 				continue
 
 			segmentation_dir = os.path.join(data_dir, class_dir, "semantic_segmentation")
-			dbgprint(dataloader, LogLevel.INFO, f'Instance segmentation directory: {segmentation_dir}')
-			if not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir):
+			dbgprint(dataloader, LogLevel.INFO, f'Semantic segmentation directory: {segmentation_dir}')
+			if False and (not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir)):
+				dbgprint(dataloader, LogLevel.WARNING, f'Semantic segmentation directory not found or not accessible: {segmentation_dir}')
 				continue
 
+			print(f'Reading {class_dir}...', end='', flush=True)
 			for idx, name in enumerate(os.listdir(rgb_dir)):
 				if idx % 1000 == 0:
 					print('.', end='', flush=True)
@@ -409,7 +414,7 @@ class SpreadDataset(Dataset):
 					im_fn    = os.path.join(rgb_dir, name)
 					imask_fn = os.path.join(instance_dir, name)
 					smask_fn = os.path.join(segmentation_dir, name)
-					dbgprint(dataloader, LogLevel.TRACE, f'{im_fn} - {imask_fn} - {smask_fn} - {self.preload = }')
+					dbgprint(dataloader, LogLevel.INFO, f'{im_fn} - {imask_fn} - {smask_fn} - {self.preload = }')
 					data.append({
 						"image_fn"	 : im_fn,
 						"instance_fn"	 : imask_fn,
@@ -482,8 +487,8 @@ class SpreadDataset(Dataset):
 		#cv2.waitKey()
 
 
-		#num_samples = 30
-		num_samples = 1
+		num_samples = 30
+		#num_samples = 1
 
 		'''
 		rgb_mask	= to_rgb(ann_map)
@@ -673,12 +678,20 @@ def validate(predictor, val_loader):
 		for itr, (images, masks, input_points, small_masks) in enumerate(val_loader):
 
 			input_points = torch.tensor(np.array(input_points)).cuda().float()
-			input_label  = torch.ones(input_points.shape[0], 1).cuda().float()		# create labels
+			if 'labpic' in dataset_name:
+				input_label  = torch.ones(input_points.shape[0], 1).cuda().float()		# create just one label!
+			elif 'spread' in dataset_name:
+				input_label  = torch.ones(input_points.shape[0], input_points.shape[1]).cuda().float()		# create as many labels as input points
+			else:
+				raise Exception(f"Unknown dataset: {dataset_name}")
 
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_points) = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {len(images)     = } - {len(masks)      = } - {len(input_points) = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
+
+			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
+			dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
 			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
@@ -896,9 +909,10 @@ if __name__ == "__main__":
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-		data_dir	= Path("/mnt/raid1/dataset/spread/spread")
+		#data_dir	= Path("/mnt/raid1/dataset/spread/spread")
 		#data_dir	= Path("/tmp/ramdrive/spread-mini")
 		#data_dir	= Path("/tmp/ramdrive/spread-femto")
+		data_dir	= Path("/mnt/raid1/dataset/spread/spread-femto-few-instances")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train", preload=dataset_preload)
 		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
@@ -954,7 +968,13 @@ if __name__ == "__main__":
 				dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
 				dbgprint(train, LogLevel.TRACE, f'{len(images)  = } {len(masks)  = } {len(input_points) = }')
 				input_points = torch.tensor(np.array(input_points)).cuda().float()
-				input_label  = torch.ones(input_points.shape[0], 1).cuda().float() # create labels
+				#input_label  = torch.ones(input_points.shape[0], 1).cuda().float() # create labels
+				if 'labpic' in dataset_name:
+					input_label  = torch.ones(input_points.shape[0], 1).cuda().float()				# create just one label!
+				elif 'spread' in dataset_name:
+					input_label  = torch.ones(input_points.shape[0], input_points.shape[1]).cuda().float()		# create as many labels as input points
+				else:
+					raise Exception(f"Unknown dataset: {dataset_name}")
 	
 				if isinstance(images, list):
 					if len(images)==0:
@@ -969,6 +989,14 @@ if __name__ == "__main__":
 						dbgprint(train, LogLevel.WARN, f'Empty batch: {len(images)} - {len(masks)} - {len(input_points)}')
 						continue					# ignore empty batches
 	
+				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_points) = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'2. - {len(images)     = } - {len(masks)      = } - {len(input_points) = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype = }')
+	
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
+				dbgprint(Subsystem.VALIDATE, LogLevel.INFO, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
+
 				pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
 										mask_logits=None, normalize_coords=True)
 
