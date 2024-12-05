@@ -20,16 +20,16 @@ import pandas as pd
 
 import cv2
 
-def read_info_file(file_path):
+def read_colorid_file(file_path):
     """
-    Reads the info file and returns a dictionary of object IDs to color IDs.
+    Reads the color id file and returns a dictionary of object IDs to color IDs.
     """
-    info_dict = {}
+    colorid_dict = {}
     with open(file_path, 'r') as f:
         for line in f:
             obj_id, color_id = line.strip().split()
-            info_dict[obj_id] = int(color_id)
-    return info_dict
+            colorid_dict[obj_id] = int(color_id)
+    return colorid_dict
 
 def create_gray_color_palette(color_palette):
     """
@@ -41,12 +41,12 @@ def create_gray_color_palette(color_palette):
             gray_color_palette[color_id] = np.mean(color)
     return gray_color_palette
 
-#def extract_binary_masks(mask, info_file_path, color_palette, min_white_pixels = 1000):
-def extract_binary_masks(mask, color_palette, info_file_path, min_white_pixels = 1000):
+#def extract_binary_masks(mask, colorid_file_path, color_palette, min_white_pixels = 1000):
+def extract_binary_masks(mask, color_palette, colorid_file_path, min_white_pixels = 1000):
 	"""
-	Extracts binary masks from RGB instance segmentation masks using the info file and color palette.
+	Extracts binary masks from RGB instance segmentation masks using the color id file and color palette.
 	"""
-	info_dict = read_info_file(info_file_path)
+	colorid_dict = read_colorid_file(colorid_file_path)
 	#gray_color_palette = create_gray_color_palette(color_palette)
 	
 	# Get unique colors in the mask
@@ -90,8 +90,8 @@ def extract_binary_masks(mask, color_palette, info_file_path, min_white_pixels =
 			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'matched_color_idx: {matched_color_idx}')
 			color_id = matched_color_idx[0]
 			
-			# Check if the color ID is in the info file
-			if str(color_id) in info_dict.values():
+			# Check if the color ID is in the color id file
+			if str(color_id) in colorid_dict.values():
 				# Create a binary mask for the tree
 				#binary_mask = np.all(mask == color, axis=2)
 				#binary_masks.append(torch.from_numpy(binary_mask).bool())
@@ -145,14 +145,14 @@ def sort_masks_and_labels(binary_masks, labels, white_px_lst, reverse=True):
     
     return sorted_binary_masks, sorted_labels, sorted_white_px
     
-def instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = False):
+def instance_segmentation_loss(gt_mask, pred_mask, colorid_file_path, color_palette, min_white_pixels = 1000, debug_show_images = False):
 	"""
 	Computes the instance segmentation loss using cross-entropy loss.
 	"""
-	gt_binary_masks, gt_labels, gt_white_pixels				= extract_binary_masks(gt_mask  , color_palette, info_file_path, min_white_pixels = min_white_pixels)
-	pred_binary_masks, pred_labels, pred_white_pixels			= extract_binary_masks(pred_mask, color_palette, info_file_path, min_white_pixels = min_white_pixels)
+	gt_binary_masks, gt_labels, gt_white_pixels				= extract_binary_masks(gt_mask  , color_palette, colorid_file_path, min_white_pixels = min_white_pixels)
+	pred_binary_masks, pred_labels, pred_white_pixels			= extract_binary_masks(pred_mask, color_palette, colorid_file_path, min_white_pixels = min_white_pixels)
 	
-	#info_dict = read_info_file(info_file_path)
+	#colorid_dict = read_colorid_file(colorid_file_path)
 	sorted_gt_binary_masks, sorted_gt_labels, sorted_gt_white_px		= sort_masks_and_labels(gt_binary_masks,   gt_labels,	gt_white_pixels)
 	sorted_pred_binary_masks, sorted_pred_labels, sorted_pred_white_px	= sort_masks_and_labels(pred_binary_masks, pred_labels,	pred_white_pixels)
 
@@ -183,7 +183,7 @@ def instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette
 #color_palette = [{0: [55, 181, 57]}, {1: [153, 108, 6]}, {2: [112, 105, 191]}]
 #gt_mask = torch.randint(0, 256, (3, 256, 256), dtype=torch.uint8)
 #pred_mask = torch.randint(0, 256, (3, 256, 256), dtype=torch.uint8)
-#info_file_path = 'path/to/info/file.txt'
+#colorid_file_path = 'path/to/colorid/file.txt'
 
 def read_color_palette(color_palette_path):
 	raw_color_palette = pd.read_excel(color_palette_path)  # 4 cols: Index, R, G, B
@@ -220,9 +220,9 @@ def main():
 	gt_mask		= torch.from_numpy(imask_gt).to(torch.uint8).to(device=device)
 	pred_mask	= torch.from_numpy(imask_pred).to(torch.uint8).to(device=device)
 	
-	info_file_path = '../instance-seg-loss-test/Tree1197_1720692273.txt'
-	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, info_file_path, min_white_pixels = 1000)
-	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, info_file_path, min_white_pixels = 1000)
+	colorid_file_path = '../instance-seg-loss-test/Tree1197_1720692273.txt'
+	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, colorid_file_path, min_white_pixels = 1000)
+	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, colorid_file_path, min_white_pixels = 1000)
 	
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks: {len(gt_binary_masks)} - gt_labels: {len(gt_labels)}')
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)}')
@@ -247,7 +247,7 @@ def main():
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
 	
-	loss = instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = debug_show_images)
+	loss = instance_segmentation_loss(gt_mask, pred_mask, colorid_file_path, color_palette, min_white_pixels = 1000, debug_show_images = debug_show_images)
 	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss}')
 	
 if __name__ == '__main__':
