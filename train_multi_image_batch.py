@@ -92,9 +92,8 @@ from dbgprint import dbgprint
 from dbgprint import *
 
 #from instance_seg_loss import convert_mask_to_binary_masks, calculate_iou, InstanceSegmentationLoss
-from instance_seg_loss import InstanceSegmentationLoss
-
-
+#from instance_seg_loss import InstanceSegmentationLoss
+from instance_seg_loss import instance_segmentation_loss
 
 print(f'Loading utils functions...')
 from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, extract_points_outside_region, draw_points_on_image, replace_bg_color
@@ -871,7 +870,13 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	if 'labpic' in dataset_name:
 		loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 	elif 'spread' in dataset_name:
-		loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+		#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+		seg_loss, score_loss, iou = None, None, None
+		gt_mask = masks
+		pred_mask = pred_masks
+		#gt_mask  = torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+		#pred_mask= torch.tensor(np.array(pred_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
+		loss = instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = True)
 		'''
 		loss_fn  = InstanceSegmentationLoss()
 
