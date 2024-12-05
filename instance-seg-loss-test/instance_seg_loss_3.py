@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 
-
 import torch
 import numpy as np
 import os
 
 import sys
 from pathlib import Path
-#sys.path.append(str(Path(__file__).parent.parent.parent))
 sys.path.append(str(Path(__file__).parent.parent))
+#sys.path.append(str('/mnt/raid1/repos/sam2/fine-tune-train_segment_anything_2_in_60_lines_of_code'))		# use this for `python -m timeit "$(cat instance_seg_loss_3.py)"`
 
 from dbgprint import dbgprint
-from dbgprint import *
+#from dbgprint import *
+from dbgprint import LogLevel, Subsystem, Color
+from dbgprint import trace, verbose, debug, info, warning, error, fatal 
+from dbgprint import threading, sharedmemory, queues, network, train, validate, test, dataloader, predict, main, loss 
+from dbgprint import enabled_subsystems
+
+import pandas as pd
+
+import cv2
 
 def read_info_file(file_path):
     """
@@ -178,74 +185,72 @@ def instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette
 #pred_mask = torch.randint(0, 256, (3, 256, 256), dtype=torch.uint8)
 #info_file_path = 'path/to/info/file.txt'
 
-
-import pandas as pd
-
-import cv2
-
 def read_color_palette(color_palette_path):
 	raw_color_palette = pd.read_excel(color_palette_path)  # 4 cols: Index, R, G, B
 	rgb_color_palette = raw_color_palette.to_dict(orient='records')
 	color_palette =[{list(rgb_color_palette[idx].values())[0]: list(rgb_color_palette[idx].values())[1:]} for idx,itm in enumerate(rgb_color_palette)]
 	return color_palette
 
-device = 'cuda:0'
-device = 'cuda:1'
-device = 'cpu'
+def main():
+	#device = 'cuda:0'
+	#device = 'cuda:1'
+	device = 'cpu'
 
-debug_show_images = True
-
-color_palette_path = "color-palette.xlsx"
-color_palette = read_color_palette(color_palette_path)
-
-dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_palette: {color_palette}')
-
-imask_gt_fn     = '../instance-seg-loss-test/Tree1197_1720692273.png'
-imask_gt        = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
-
-imask_pred_fn   = f'../instance-seg-loss-test/Tree1197_1720692273-10px.png'
-imask_pred      = cv2.imread(imask_pred_fn,     cv2.IMREAD_UNCHANGED)
-
-if debug_show_images:
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'These are the original GT and pred masks respectively: {imask_gt_fn} and {imask_pred_fn} with shape: {imask_gt.shape} and {imask_pred.shape}')
-	cv2.imshow(f'GT mask (orig)', imask_gt)
-	cv2.imshow(f'Pred mask (orig)', imask_pred)
-	cv2.waitKey(0)
-
-gt_mask		= torch.from_numpy(imask_gt).to(torch.uint8).to(device=device)
-pred_mask	= torch.from_numpy(imask_pred).to(torch.uint8).to(device=device)
-
-info_file_path = '../instance-seg-loss-test/Tree1197_1720692273.txt'
-#gt_binary_masks, gt_labels	= extract_binary_masks(gt_masks, info_file_path, color_palette)
-#pred_binary_masks, pred_labels	= extract_binary_masks(pred_masks, info_file_path, color_palette)
-gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, info_file_path, min_white_pixels = 1000)
-pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, info_file_path, min_white_pixels = 1000)
-
-dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks: {len(gt_binary_masks)} - gt_labels: {len(gt_labels)}')
-dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)}')
-
-
-# Sort the binary masks and labels
-#sorted_binary_masks, sorted_labels, white_px_lst = sort_masks_and_labels(gt_binary_masks, gt_labels, gt_white_pixels)
-sorted_binary_masks, sorted_labels, white_px_lst = sort_masks_and_labels(pred_binary_masks, pred_labels, pred_white_pixels)
-    
-# Print the sorted white pixel counts for verification
-sorted_white_pixels = [torch.sum(mask) for mask in sorted_binary_masks]
-dbgprint(Subsystem.LOSS, LogLevel.INFO, f'sorted_white_pixels: {sorted_white_pixels}')
-
-#for idx, (binary_mask, label) in enumerate(zip(gt_binary_masks, gt_labels)):
-for idx, (binary_mask, label) in enumerate(zip(sorted_binary_masks, sorted_labels)):
-	white_count = binary_mask[binary_mask != 0].shape[0]
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
+	enabled_subsystems[Subsystem.LOSS] = LogLevel.FATAL		# print only FATAL messages about the LOSS subsystem (i.e. disable almost all printing for timeit)
+	
+	debug_show_images = False
+	
+	color_palette_path = "color-palette.xlsx"
+	color_palette = read_color_palette(color_palette_path)
+	
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_palette: {color_palette}')
+	
+	imask_gt_fn     = '../instance-seg-loss-test/Tree1197_1720692273.png'
+	imask_gt        = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
+	
+	imask_pred_fn   = f'../instance-seg-loss-test/Tree1197_1720692273-10px.png'
+	imask_pred      = cv2.imread(imask_pred_fn,     cv2.IMREAD_UNCHANGED)
+	
 	if debug_show_images:
-		cv2.imshow(f'binary_masks-{idx}-label-{label}', binary_mask.cpu().numpy())
-		#cv2.imshow(f'binary_masks-1-label-{labels[1]}', binary_masks[1].to(torch.uint8).cpu().numpy()*255)
-		#cv2.imshow(f'binary_masks-2-label-{labels[2]}', binary_masks[2].to(torch.uint8).cpu().numpy()*255)
-		if idx % 10 == 0 and idx != 0:
-			cv2.waitKey(0)
-			cv2.destroyAllWindows()
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'These are the original GT and pred masks respectively: {imask_gt_fn} and {imask_pred_fn} with shape: {imask_gt.shape} and {imask_pred.shape}')
+		cv2.imshow(f'GT mask (orig)', imask_gt)
+		cv2.imshow(f'Pred mask (orig)', imask_pred)
+		cv2.waitKey(0)
+	
+	gt_mask		= torch.from_numpy(imask_gt).to(torch.uint8).to(device=device)
+	pred_mask	= torch.from_numpy(imask_pred).to(torch.uint8).to(device=device)
+	
+	info_file_path = '../instance-seg-loss-test/Tree1197_1720692273.txt'
+	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, info_file_path, min_white_pixels = 1000)
+	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, info_file_path, min_white_pixels = 1000)
+	
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks: {len(gt_binary_masks)} - gt_labels: {len(gt_labels)}')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)}')
+	
+	# Sort the binary masks and labels
+	sorted_binary_masks, sorted_labels, white_px_lst = None, None, None
+	if False:				# set this to true to look at the other set of binary masks
+		sorted_binary_masks, sorted_labels, white_px_lst = sort_masks_and_labels(gt_binary_masks, gt_labels, gt_white_pixels)
+	else:
+		sorted_binary_masks, sorted_labels, white_px_lst = sort_masks_and_labels(pred_binary_masks, pred_labels, pred_white_pixels)
+	    
+	# Print the sorted white pixel counts for verification
+	sorted_white_pixels = [torch.sum(mask) for mask in sorted_binary_masks]
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'sorted_white_pixels: {sorted_white_pixels}')
+	
+	for idx, (binary_mask, label) in enumerate(zip(sorted_binary_masks, sorted_labels)):
+		white_count = binary_mask[binary_mask != 0].shape[0]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
+		if debug_show_images:
+			cv2.imshow(f'binary_masks-{idx}-label-{label}', binary_mask.cpu().numpy())
+			if idx % 10 == 0 and idx != 0:
+				cv2.waitKey(0)
+				cv2.destroyAllWindows()
+	
+	loss = instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = debug_show_images)
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss}')
+	
+if __name__ == '__main__':
+	# python -m timeit "$(cat instance_seg_loss_3.py)"
 
-#loss = instance_segmentation_loss(pred_masks, gt_masks, labels)
-loss = instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = True)
-dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'loss: {loss}')
-
+	main()
