@@ -93,7 +93,7 @@ from dbgprint import *
 
 #from instance_seg_loss import convert_mask_to_binary_masks, calculate_iou, InstanceSegmentationLoss
 #from instance_seg_loss import InstanceSegmentationLoss
-from instance_seg_loss import instance_segmentation_loss
+from instance_seg_loss import instance_segmentation_loss, read_color_palette, read_colorid_file
 
 print(f'Loading utils functions...')
 from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, extract_points_outside_region, draw_points_on_image, replace_bg_color
@@ -353,16 +353,20 @@ def collate_fn(data):
 		dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 3. - {type(data[1])	= }	{len(data[1])	= }')
 	if len(data) > 2:
 		dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 4. - {type(data[2])	= }	{len(data[2])	= }')
-	imgs, masks, points, small_masks = zip(*data)
+	imgs, masks, points, small_masks, color_ids = zip(*data)
 	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 5. - {type(imgs)	= }	{len(imgs)	= }')
 	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 6. - {type(masks)	= }	{len(masks)	= }')
 	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 7. - {type(points)	= }	{len(points)	= }')
 	dbgprint(dataloader, LogLevel.TRACE, f'collate_fn() 8. - {type(small_masks) = }	{len(small_masks) = } - {small_masks[0].shape = }')
-	return list(imgs), list(masks), list(points), list(small_masks)
+	return list(imgs), list(masks), list(points), list(small_masks), list(color_ids)
 
 class SpreadDataset(Dataset):
 	_data = None					# The whole dataset (filenames, imgs, seg. masks, instance seg. masks)
-	def __init__(self, data_dir, width=1024, height=1024, split="train", train_ratio=0.7, val_ratio=0.2, test_ratio=0.1, preload=False):
+	def __init__(self, data_dir, width=1024, height=1024, split="train",
+			color_palette_path='./instance-seg-loss-test/color-palette.xlsx',
+			train_ratio=0.7, val_ratio=0.2, test_ratio=0.1,
+			preload=False):
+
 		dbgprint(dataloader, LogLevel.INFO, f'SpreadDataset() - {data_dir} - {width} - {height} - {split} - {train_ratio} - {val_ratio} - {test_ratio}')
 
 		self.data_dir				= data_dir
@@ -370,13 +374,16 @@ class SpreadDataset(Dataset):
 		self.width				= width
 		self.height				= height
 		self.preload				= preload
+		self.color_palette_path			= color_palette_path
+		self.color_palette			= None
 		self.debug_instance_segmentation_masks	= False
 		self.debug_input_points			= False
 
 		if SpreadDataset._data is None:
 			SpreadDataset._data = self._load_data(data_dir)
 
-		self.data = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
+		self.data          = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
+		self.color_palette = read_color_palette,(color_palette_path)
 
 	def _load_data(self, data_dir):
 		# Collect all data entries
@@ -410,17 +417,20 @@ class SpreadDataset(Dataset):
 				if idx % 1000 == 0:
 					print('.', end='', flush=True)
 				if name.endswith(".png"):
-					im_fn    = os.path.join(rgb_dir, name)
-					imask_fn = os.path.join(instance_dir, name)
-					smask_fn = os.path.join(segmentation_dir, name)
-					dbgprint(dataloader, LogLevel.INFO, f'{im_fn} - {imask_fn} - {smask_fn} - {self.preload = }')
+					im_fn      = os.path.join(rgb_dir,          name)
+					imask_fn   = os.path.join(instance_dir,     name)
+					smask_fn   = os.path.join(segmentation_dir, name)
+					colorid_fn = os.path.join(instance_dir,     name.replace(".png", ".txt"))
+					dbgprint(dataloader, LogLevel.INFO, f'{im_fn} - {imask_fn} - {smask_fn} - {colorid_fn} - {self.preload = }')
 					data.append({
 						"image_fn"	 : im_fn,
 						"instance_fn"	 : imask_fn,
 						"segmentation_fn": smask_fn,
+						"colorid_fn"	 : colorid_fn,
 						"image"		 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
 						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1] if self.preload else None, # RGB plz
 						"segmentation"	 : None,	# TODO
+						"colorids"	 : read_colorid_file(colorid_fn),
 					})
 		print(' done!', flush=True)
 
@@ -467,6 +477,10 @@ class SpreadDataset(Dataset):
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading instance segmentation mask: {ent["instance"]}')
 		#imask	= replace_white_background_with_black(imask)
 		#smask	= cv2.imread(ent["segmentation"],	cv2.IMREAD_GRAYSCALE)		# Read grayscale
+		color_ids = ent["colorids"] if ent["colorids"] is not None else read_colorid_file(ent["colorid_fn"])		# this returns a colorid_dict
+		if color_ids is None:
+			dbgprint(dataloader, LogLevel.ERROR, f'Error reading colorid file: {ent["colorid_fn"]}')
+		print(f'------------------- Color ids: {color_ids}')
 
 		# Resize images and masks to the same resolution
 		img	= cv2.resize(img,	(self.width, self.height))
@@ -543,7 +557,7 @@ class SpreadDataset(Dataset):
 		'''
 
 		#return img, ann_map, input_points
-		return img, imask, input_points, small_mask
+		return img, imask, input_points, small_mask, color_ids
 
 
 
@@ -674,7 +688,7 @@ def validate(predictor, val_loader):
 	total_focal_loss = 0
 	predictor.model.eval()
 	with torch.no_grad():
-		for itr, (images, masks, input_points, small_masks) in enumerate(val_loader):
+		for itr, (images, masks, input_points, small_masks, color_ids) in enumerate(val_loader):
 
 			input_points = torch.tensor(np.array(input_points)).cuda().float()
 			if 'labpic' in dataset_name:
@@ -822,7 +836,7 @@ def validate(predictor, val_loader):
 	return itr, avg_val_loss, avg_val_iou, extra_loss_str, *extra_loss_values
 
 
-def training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, epoch, itr, best_loss, best_iou, mean_iou):
+def training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, color_ids, color_palette, epoch, itr, best_loss, best_iou, mean_iou):
 	dbgprint(train, LogLevel.INFO, f'Reading batch no. {itr}: {len(images)} - {len(masks)} - {len(small_masks)} - {len(input_points)}')
 	
 	dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
@@ -872,11 +886,14 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	elif 'spread' in dataset_name:
 		#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 		seg_loss, score_loss, iou = None, None, None
-		gt_mask = masks
-		pred_mask = pred_masks
+		#gt_mask = masks
+		#pred_mask = pred_masks
 		#gt_mask  = torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
 		#pred_mask= torch.tensor(np.array(pred_masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
-		loss = instance_segmentation_loss(gt_mask, pred_mask, info_file_path, color_palette, min_white_pixels = 1000, debug_show_images = True)
+		#loss = instance_segmentation_loss(gt_mask, pred_mask, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = True)
+		loss = 0
+		for idx, (gt_mask, pred_mask) in enumerate(zip(masks, pred_masks)):
+			loss += instance_segmentation_loss(gt_mask, pred_mask, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = True)
 		'''
 		loss_fn  = InstanceSegmentationLoss()
 
@@ -1125,9 +1142,11 @@ if __name__ == "__main__":
 	mean_iou  = 0
 	
 	for epoch in range(num_epochs):  # Example: 100 epochs
-		for itr, (images, masks, input_points, small_masks) in enumerate(train_loader):
+		for itr, (images, masks, input_points, small_masks, color_ids) in enumerate(train_loader):
 			with torch.cuda.amp.autocast():							# cast to mix precision
-				training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, epoch, itr, best_loss, best_iou, mean_iou)
+				training_loop(predictor, optimizer, scaler,									# model + state
+						images, masks, input_points, small_masks, color_ids, train_loader.dataset.color_palette,	# training data
+						epoch, itr, best_loss, best_iou, mean_iou)							# metrics & aux stuff
 	
 		#avg_val_loss, avg_val_iou, avg_val_score_loss, avg_val_seg_loss, num_batches = validate(predictor, val_loader)
 		if 'labpic' in dataset_name:
