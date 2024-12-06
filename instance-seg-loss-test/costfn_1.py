@@ -42,7 +42,7 @@ def num_white_pixels_in_binary_mask(masks):
 		num of white pixels: torch.Tensor of shape [B,N]
 		e.g. tensor([8047., 5451., 5309., 4592., 3030., 2217., 1333., 1272., 1219., 1128., 1112., 1086., 1053.], device='cuda:1')
 	"""
-	white_px = torch.sum(masks, dim=(1, 2))
+	white_px = torch.sum(masks, dim=(2, 3))
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_px = }')
 	return white_px
 
@@ -164,15 +164,19 @@ def extract_bounding_boxes(masks):
             - roundness_indices (torch.Tensor): Roundness index of the white content in each mask (B).
     """
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks.shape = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, 5].shape = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, 5] = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.nonzero(masks[0, 5].view(-1), as_tuple=False) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 0]) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 1]) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 2]) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 3]) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 4]) = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 5]) = }')
+
+    max_dbg_idx = min(masks.shape[1]-1, 5)
+
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, max_dbg_idx].shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, max_dbg_idx] = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.nonzero(masks[0, max_dbg_idx].view(-1), as_tuple=False) = }')
+    for idx in range(max_dbg_idx):
+        dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, idx]) = }')
+    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 1]) = }')
+    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 2]) = }')
+    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 3]) = }')
+    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 4]) = }')
+    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 5]) = }')
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0], dim=(1, 2)) = }')
     B, N, H, W = masks.shape
 
@@ -187,18 +191,21 @@ def extract_bounding_boxes(masks):
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
     '''    
 
-    start = datetime.datetime.now()
+    start = datetime.now()
     bounding_boxes = get_bounding_boxes(masks)
-    end   = datetime.datetime.now()
+    end   = datetime.now()
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'elapsed time: {end-start}')
 
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'{bounding_boxes.shape = }')
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'{bounding_boxes[0:max_dbg_idx] = }')
     #white_pixels, widths, heights, diagonals, roundness_indices = None, None, None, None, None
     #return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
 
 
-    num_white_pixels = num_white_pixels_in_binary_mask(masks)
+    white_pixels = num_white_pixels_in_binary_mask(masks)
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{white_pixels.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{white_pixels = }')
 
     '''
     # Find the coordinates of white pixels
@@ -229,9 +236,15 @@ def extract_bounding_boxes(masks):
     '''
     
     # Calculate width, height, and diagonal of each bounding box
-    widths = bounding_boxes[:, 2] - bounding_boxes[:, 0] + 1
-    heights = bounding_boxes[:, 3] - bounding_boxes[:, 1] + 1
-    diagonals = torch.sqrt(widths**2 + heights**2)
+    widths	= bounding_boxes[:, :, 2] - bounding_boxes[:, :, 0] + 1
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{widths.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{widths = }')
+    heights	= bounding_boxes[:, :, 3] - bounding_boxes[:, :, 1] + 1
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{heights.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{heights = }')
+    diagonals	= torch.sqrt(widths**2 + heights**2)
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{diagonals.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{diagonals = }')
     
     # Calculate roundness index
     areas = white_pixels

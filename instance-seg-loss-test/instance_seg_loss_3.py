@@ -277,17 +277,19 @@ def main():
 	min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
 
 	#fn_prefix = 'Tree1197_1720692273'
-	fn_prefix = 'Tree53707_1720524644'
+	#fn_prefix = 'Tree53707_1720524644'
+	fn_prefix = 'test-mask-'
 	
 	color_palette_path = "color-palette.xlsx"
 	color_palette = read_color_palette(color_palette_path)
 	
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_palette: {color_palette}')
 	
-	imask_gt_fn       = f'../instance-seg-loss-test/{fn_prefix}.png'
+	imask_gt_fn       = f'../instance-seg-loss-test/{fn_prefix}1.png'
 	imask_gt          = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
 	
-	imask_pred_fn     = f'../instance-seg-loss-test/{fn_prefix}-10px.png'
+	#imask_pred_fn     = f'../instance-seg-loss-test/{fn_prefix}-10px.png'
+	imask_pred_fn     = f'../instance-seg-loss-test/{fn_prefix}2.png'
 	imask_pred        = cv2.imread(imask_pred_fn,     cv2.IMREAD_UNCHANGED)
 
 	colorid_file_path = f'../instance-seg-loss-test/{fn_prefix}.txt'
@@ -319,7 +321,7 @@ def main():
 	
 
 
-	dbg_mask_idx = 5
+	dbg_mask_idx = min(len(gt_sorted_binary_masks) - 1, 5)
 	from costfn_1 import extract_bounding_boxes, instance_segmentation_cost
 	from costfn_2 import extract_mask_features, mask_cost_function
 	gt_sorted_tensor   = torch.stack(gt_sorted_binary_masks).float() / 255
@@ -345,7 +347,7 @@ def main():
 					(int(gt_bboxes[idx][2].cpu().numpy()), int(gt_bboxes[idx][3].cpu().numpy())),
 					color=(255,255,255), thickness=2)
 			cv2.imshow(f'binary_masks-{idx}-label-{label}', cv2img)
-			if idx % 10 == 0 and idx != 0:
+			if idx % 2 == 0 and idx != 0:
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
 
