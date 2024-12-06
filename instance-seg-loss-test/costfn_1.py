@@ -250,6 +250,8 @@ def extract_bounding_boxes(masks):
     areas = white_pixels
     perimeters = 2 * (widths + heights)
     roundness_indices = 4 * torch.pi * areas / (perimeters**2 + 1e-6)
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness_indices.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness_indices = }')
     
     return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
 

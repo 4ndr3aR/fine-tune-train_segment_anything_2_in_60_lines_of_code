@@ -244,8 +244,23 @@ def instance_segmentation_loss_2(gt_mask, pred_mask, colorids_dict, color_palett
     end = datetime.datetime.now()
     return loss, end - start
 
-
-
+def debug_show_images_fn(idx, binary_mask, label, bboxes, widths, heights, diags, roundness_indices, display_name):
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{bboxes[idx].cpu().numpy() = }')
+	cv2img = binary_mask.cpu().numpy()
+	cv2img = cv2.cvtColor(cv2img, cv2.COLOR_GRAY2BGR)
+	x = (int(bboxes[idx][0].cpu().numpy()), int(bboxes[idx][1].cpu().numpy()))
+	y = (int(bboxes[idx][2].cpu().numpy()), int(bboxes[idx][3].cpu().numpy()))
+	cv2.rectangle(cv2img, x, y, color=(255,255,255), thickness=2)
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{widths[0][idx].cpu().numpy() = }')
+	w = int(widths[0][idx].cpu().numpy())
+	h = int(heights[0][idx].cpu().numpy())
+	d = int(diags[0][idx].cpu().numpy())
+	r = int(roundness_indices[0][idx].cpu().numpy()*100)
+	cv2.line(cv2img, (x[0],  y[1]+3), (x[0]+w, y[1]+3), color=(255,0,0),   thickness=2) 
+	cv2.line(cv2img, (x[0]-3,y[1]),   (x[0]-3, y[1]-h), color=(0,255,0),   thickness=2) 
+	cv2.line(cv2img, (x[0],  y[1]+6), (x[0]+d, y[1]+6), color=(0,0,255),   thickness=2) 
+	cv2.line(cv2img, (x[0],  y[1]+9), (x[0]+r, y[1]+9), color=(255,255,0), thickness=2) 
+	cv2.imshow(f'{display_name}-{idx}-label-{label}', cv2img)
 
 # Example usage:
 #color_palette = [{0: [55, 181, 57]}, {1: [153, 108, 6]}, {2: [112, 105, 191]}]
@@ -340,20 +355,8 @@ def main():
 		white_count = binary_mask[binary_mask != 0].shape[0]
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
 		if debug_show_images:
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{gt_bboxes[idx].cpu().numpy() = }')
-			cv2img = binary_mask.cpu().numpy()
-			cv2img = cv2.cvtColor(cv2img, cv2.COLOR_GRAY2BGR)
-			x = (int(gt_bboxes[idx][0].cpu().numpy()), int(gt_bboxes[idx][1].cpu().numpy()))
-			y = (int(gt_bboxes[idx][2].cpu().numpy()), int(gt_bboxes[idx][3].cpu().numpy()))
-			cv2.rectangle(cv2img, x, y, color=(255,255,255), thickness=2)
-			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{gt_widths[0][idx].cpu().numpy() = }')
-			w = int(gt_widths[0][idx].cpu().numpy())
-			h = int(gt_heights[0][idx].cpu().numpy())
-			d = int(gt_diags[0][idx].cpu().numpy())
-			cv2.line(cv2img, (x[0],  y[1]+3), (x[0]+w, y[1]+3), color=(255,0,0), thickness=2) 
-			cv2.line(cv2img, (x[0]-3,y[1]),   (x[0]-3, y[1]-h), color=(0,255,0), thickness=2) 
-			cv2.line(cv2img, (x[0],  y[1]+6), (x[0]+d, y[1]+6), color=(0,0,255), thickness=2) 
-			cv2.imshow(f'binary_masks-{idx}-label-{label}', cv2img)
+			debug_show_images_fn(idx, binary_mask, label, gt_bboxes, gt_widths, gt_heights, gt_diags, gt_roundness_indices, 'gt')
+			debug_show_images_fn(idx, pred_sorted_binary_masks[idx], pred_sorted_labels[idx], pred_bboxes, pred_widths, pred_heights, pred_diags, pred_roundness_indices, 'pred')
 			if idx % 2 == 0 and idx != 0:
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
