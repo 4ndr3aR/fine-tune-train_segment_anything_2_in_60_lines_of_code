@@ -270,7 +270,7 @@ def main():
 	
 	debug_show_images = False
 
-	#min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
+	min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
 					#				- 63 binary masks
 	#min_white_pixels = 100		# 1.45 s per mask (2.59 on CPU) - 49 binary masks
 	#min_white_pixels = 200		# 1.46 s per mask (2.81 on CPU) - 34 binary masks
