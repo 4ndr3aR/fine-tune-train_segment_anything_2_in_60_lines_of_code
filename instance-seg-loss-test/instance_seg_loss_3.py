@@ -268,13 +268,13 @@ def main():
 	# print only FATAL messages about the LOSS subsystem (i.e. disable almost all printing for timeit)
 	#enabled_subsystems[Subsystem.LOSS] = LogLevel.FATAL
 	
-	debug_show_images = False
+	debug_show_images = True
 
-	min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
+	#min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
 					#				- 63 binary masks
 	#min_white_pixels = 100		# 1.45 s per mask (2.59 on CPU) - 49 binary masks
 	#min_white_pixels = 200		# 1.46 s per mask (2.81 on CPU) - 34 binary masks
-	#min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
+	min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
 
 	#fn_prefix = 'Tree1197_1720692273'
 	fn_prefix = 'Tree53707_1720524644'
@@ -317,14 +317,7 @@ def main():
 	gt_sorted_white_pixels = [torch.sum(mask/255) for mask in gt_sorted_binary_masks]
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_sorted_white_pixels: {gt_sorted_white_pixels}')
 	
-	for idx, (binary_mask, label) in enumerate(zip(gt_sorted_binary_masks, gt_sorted_labels)):
-		white_count = binary_mask[binary_mask != 0].shape[0]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
-		if debug_show_images:
-			cv2.imshow(f'binary_masks-{idx}-label-{label}', binary_mask.cpu().numpy())
-			if idx % 10 == 0 and idx != 0:
-				cv2.waitKey(0)
-				cv2.destroyAllWindows()
+
 
 	dbg_mask_idx = 5
 	from costfn_1 import extract_bounding_boxes, instance_segmentation_cost
@@ -335,7 +328,26 @@ def main():
 	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness_indices = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes: {gt_bboxes[0][dbg_mask_idx]} - pred_bboxes: {pred_bboxes[0][dbg_mask_idx]}')
-	cv2.rectangle(gt_sorted_tensor[0][dbg_mask_idx].cpu().numpy(), (x1, y1), (x2, y2), color=(255,0,0), thickness=2)
+
+
+	gt_bboxes   = gt_bboxes.squeeze(0)
+	pred_bboxes = pred_bboxes.squeeze(0)
+
+
+	for idx, (binary_mask, label) in enumerate(zip(gt_sorted_binary_masks, gt_sorted_labels)):
+		white_count = binary_mask[binary_mask != 0].shape[0]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
+		if debug_show_images:
+			print(f'{gt_bboxes[0].cpu().numpy() = }')
+			cv2img = binary_mask.cpu().numpy()
+			cv2.rectangle(cv2img,
+					(int(gt_bboxes[idx][0].cpu().numpy()), int(gt_bboxes[idx][1].cpu().numpy())),
+					(int(gt_bboxes[idx][2].cpu().numpy()), int(gt_bboxes[idx][3].cpu().numpy())),
+					color=(255,255,255), thickness=2)
+			cv2.imshow(f'binary_masks-{idx}-label-{label}', cv2img)
+			if idx % 10 == 0 and idx != 0:
+				cv2.waitKey(0)
+				cv2.destroyAllWindows()
 
 	start = datetime.datetime.now()
 	loss  = instance_segmentation_loss_2(gt_mask, pred_mask,

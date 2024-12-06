@@ -174,6 +174,8 @@ def extract_bounding_boxes(masks):
 
     print(f'{bounding_boxes.shape = }')
     print(f'{bounding_boxes = }')
+    white_pixels, widths, heights, diagonals, roundness_indices = None, None, None, None, None
+    return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
 
 
     # Find the coordinates of white pixels
