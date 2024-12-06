@@ -2,7 +2,10 @@
 
 import sys
 import torch
-import datetime
+#import datetime
+
+from dbgprint import dbgprint
+from dbgprint import *
 
 def masks_to_bounding_boxes_vectorized(masks):
     B, N, H, W = masks.shape
@@ -26,6 +29,22 @@ def masks_to_bounding_boxes_vectorized(masks):
     bounding_boxes = bounding_boxes.view(B, N, 4)
     
     return bounding_boxes
+
+def num_white_pixels_in_binary_mask(masks):
+	"""
+	Returns the number of white pixels in each binary mask
+	
+	Args:
+		masks: torch.Tensor of shape [B,N,H,W] with binary values (0 or 1)
+			  B: batch size, N: number of masks per batch, H: height, W: width
+	
+	Returns:
+		num of white pixels: torch.Tensor of shape [B,N]
+		e.g. tensor([8047., 5451., 5309., 4592., 3030., 2217., 1333., 1272., 1219., 1128., 1112., 1086., 1053.], device='cuda:1')
+	"""
+	white_px = torch.sum(masks, dim=(1, 2))
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_px = }')
+	return white_px
 
 def get_bounding_boxes(masks):
     """
@@ -84,10 +103,10 @@ def get_bounding_boxes(mask_tensor):
   """
 
   mask_nonzero = torch.nonzero(mask_tensor, as_tuple=False).T
-  print(f'{torch.min(mask_nonzero, dim=0)[:2][0] = }')
-  print(f'{torch.min(mask_nonzero, dim=0)[:2][1] = }')
-  print(f'{torch.max(mask_nonzero, dim=0)[:2][0] = }')
-  print(f'{torch.max(mask_nonzero, dim=0)[:2][1] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(mask_nonzero, dim=0)[:2][0] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(mask_nonzero, dim=0)[:2][1] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(mask_nonzero, dim=0)[:2][0] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(mask_nonzero, dim=0)[:2][1] = }')
 
   # Get the coordinates of the bounding boxes
   min_vals = torch.min(mask_nonzero, dim=0)[:2].unsqueeze(1)
@@ -95,26 +114,26 @@ def get_bounding_boxes(mask_tensor):
 
   # Combine min and max values to form bounding boxes
   bounding_boxes = torch.cat((min_vals, max_vals), dim=1)
-  print(f'{bounding_boxes.shape = }')
-  print(f'{bounding_boxes = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
 
 
   # Find the coordinates of non-zero elements
   nonzero_indices = torch.nonzero(mask_tensor)
-  print(f'{nonzero_indices.shape = }')
-  print(f'nonzero_indices: {nonzero_indices}')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices.shape = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'nonzero_indices: {nonzero_indices}')
   for i in range(len(nonzero_indices)):
-    print(f'{nonzero_indices[i] = }')
-  print(f'{nonzero_indices[:, 0] = }')
-  print(f'{nonzero_indices[:, 1] = }')
-  print(f'{nonzero_indices[:, 2] = }')
-  print(f'{nonzero_indices[:, 3] = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[i] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 0] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 1] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 2] = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 3] = }')
 
 
-  print(f'{torch.min(nonzero_indices[:, 2], dim=0) = }')
-  print(f'{torch.min(nonzero_indices[:, 3], dim=0) = }')
-  print(f'{torch.max(nonzero_indices[:, 2], dim=0) = }')
-  print(f'{torch.max(nonzero_indices[:, 3], dim=0) = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(nonzero_indices[:, 2], dim=0) = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(nonzero_indices[:, 3], dim=0) = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(nonzero_indices[:, 2], dim=0) = }')
+  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(nonzero_indices[:, 3], dim=0) = }')
 
   # Get the minimum and maximum coordinates for each mask
   x_min = torch.min(nonzero_indices[:, 2], dim=0)[0]
@@ -144,16 +163,17 @@ def extract_bounding_boxes(masks):
             - diagonals (torch.Tensor): Diagonal length of each bounding box (B).
             - roundness_indices (torch.Tensor): Roundness index of the white content in each mask (B).
     """
-    print(f'{masks.shape = }')
-    print(f'{masks[0, 5].shape = }')
-    print(f'{masks[0, 5] = }')
-    print(f'{torch.nonzero(masks[0, 5].view(-1), as_tuple=False) = }')
-    print(f'{torch.sum(masks[0, 0]) = }')
-    print(f'{torch.sum(masks[0, 1]) = }')
-    print(f'{torch.sum(masks[0, 2]) = }')
-    print(f'{torch.sum(masks[0, 3]) = }')
-    print(f'{torch.sum(masks[0, 4]) = }')
-    print(f'{torch.sum(masks[0, 5]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, 5].shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks[0, 5] = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.nonzero(masks[0, 5].view(-1), as_tuple=False) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 0]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 1]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 2]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 3]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 4]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 5]) = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0], dim=(1, 2)) = }')
     B, N, H, W = masks.shape
 
     '''    
@@ -161,34 +181,38 @@ def extract_bounding_boxes(masks):
     start = datetime.datetime.now()
     bounding_boxes = masks_to_bounding_boxes_vectorized(masks)
     end   = datetime.datetime.now()
-    print(f'elapsed time: {end-start}')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'elapsed time: {end-start}')
 
-    print(f'{bounding_boxes.shape = }')
-    print(f'{bounding_boxes = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
     '''    
 
     start = datetime.datetime.now()
     bounding_boxes = get_bounding_boxes(masks)
     end   = datetime.datetime.now()
-    print(f'elapsed time: {end-start}')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'elapsed time: {end-start}')
 
-    print(f'{bounding_boxes.shape = }')
-    print(f'{bounding_boxes = }')
-    white_pixels, widths, heights, diagonals, roundness_indices = None, None, None, None, None
-    return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
+    #white_pixels, widths, heights, diagonals, roundness_indices = None, None, None, None, None
+    #return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
 
 
+    num_white_pixels = num_white_pixels_in_binary_mask(masks)
+
+    '''
     # Find the coordinates of white pixels
     #white_coords = torch.nonzero(masks.view(B, N, -1), as_tuple=False)
     white_coords = torch.sum(masks.view(B, N, -1), dim=2)
-    print(f'{white_coords.shape = }')
-    print(f'{white_coords[0] = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_coords.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_coords[0] = }')
     
     # Extract bounding box coordinates
     min_coords, _ = white_coords.view(B, N, -1, 2).min(dim=2)
     max_coords, _ = white_coords.view(B, N, -1, 2).max(dim=2)
     bounding_boxes = torch.cat([min_coords, max_coords], dim=1)
-    print(f'{bounding_boxes.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
+    '''
 
     '''
             y_min = white_pixels[0].min()
@@ -199,8 +223,10 @@ def extract_bounding_boxes(masks):
             bbox = [x_min.item(), y_min.item(), x_max.item(), y_max.item()]
     '''
     
+    '''
     # Count the number of white pixels in each mask
     white_pixels = masks.view(B, -1).sum(dim=1)
+    '''
     
     # Calculate width, height, and diagonal of each bounding box
     widths = bounding_boxes[:, 2] - bounding_boxes[:, 0] + 1
