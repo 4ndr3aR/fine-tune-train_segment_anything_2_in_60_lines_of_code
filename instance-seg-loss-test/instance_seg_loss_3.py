@@ -18,6 +18,8 @@ from dbgprint import enabled_subsystems
 
 import pandas as pd
 
+import datetime
+
 import cv2
 
 def read_colorid_file(file_path):
@@ -41,7 +43,6 @@ def create_gray_color_palette(color_palette):
             gray_color_palette[color_id] = np.mean(color)
     return gray_color_palette
 
-#def extract_binary_masks(mask, colorid_file_path, color_palette, min_white_pixels = 1000):
 def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 1000):
 	"""
 	Extracts binary masks from RGB instance segmentation masks using the color id file and color palette.
@@ -59,7 +60,7 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 	labels = []
 	white_px_lst = []
 	
-	for color in unique_colors:
+	for color_idx, color in enumerate(unique_colors):
 		# Check if the color is valid
 		color_palette_lst = [tuple(color_dict[color_id]) for color_dict in color_palette for color_id in color_dict]
 		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'Matching color: {color} with color palette as list: {color_palette_lst}')
@@ -74,7 +75,7 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 		label		= None								# 1 is tree, 0 is non-tree, 2 is <invalid color> (i.e. not in the color_palette)
 		binary_mask	= torch.all(mask == color, axis=2)				# we have the binary mask for the current color, should we append it?
 		white_pixels	= torch.sum(binary_mask)
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'mask for color_tuple: {color_tuple} has {white_pixels} white pixels')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels')
 
 		if color_tuple in color_palette_lst:						# unique_colors (and hence color) is BGR again...
 			# Get the color ID
@@ -101,9 +102,11 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 				#binary_mask = np.all(mask == color, axis=2)
 				#binary_masks.append(torch.from_numpy(binary_mask).bool())
 				label = 0					# Label for non-tree
+				dbgprint(Subsystem.LOSS, LogLevel.INFO, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and color idx: {matched_color_idx} -> label: {label}')
 		else:
-			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_tuple: {color_tuple} not in color_palette_lst')
 			label = 2						# Label for invalid color, don't append (even if the mask is large, it makes no sense)
+			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_tuple: {color_tuple} not in color_palette_lst')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and label: {label}')
 			# Create a binary mask for the invalid color
 			#binary_mask = np.all(mask == color, axis=2)
 			#binary_masks.append(torch.from_numpy(binary_mask).bool())
@@ -114,6 +117,8 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 		binary_masks.append(binary_mask.to(torch.uint8)*255)		# append
 		labels.append(label)						# append as well
 		white_px_lst.append(white_pixels)				# append as well
+
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'Appended {len(binary_masks)} masks - {len(labels)} labels - {len(white_px_lst)} white pixels')
 	
 	return binary_masks, labels, white_px_lst
 
@@ -169,8 +174,8 @@ def instance_segmentation_loss(gt_mask, pred_mask, colorids_dict, color_palette,
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'Cross-entropy loss on binary masks: {idx} with the following amount of white pixels: {sorted_gt_white_px[idx]}-{sorted_pred_white_px[idx]} == {tmploss.item():.3f}')
 		loss += tmploss
 		if debug_show_images:
-			cv2.imshow(f'gt-{idx}-label-{label}',	gt_bin_mask_float.to(torch.uint8).cpu().numpy() * 255)
-			cv2.imshow(f'pred-{idx}-label-{label}',	pred_bin_mask_float.to(torch.uint8).cpu().numpy() * 255)
+			cv2.imshow(f'gt-{idx}-label-{gt_labels[idx]}',		gt_bin_mask_float.to(torch.uint8).cpu().numpy() * 255)
+			cv2.imshow(f'pred-{idx}-label-{pred_labels[idx]}',	pred_bin_mask_float.to(torch.uint8).cpu().numpy() * 255)
 			if idx % 2 == 0 and idx != 0:
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
@@ -193,23 +198,37 @@ def read_color_palette(color_palette_path):
 
 def main():
 	#device = 'cuda:0'
-	#device = 'cuda:1'
-	device = 'cpu'
+	device = 'cuda:1'
+	#device = 'cpu'
 
-	enabled_subsystems[Subsystem.LOSS] = LogLevel.FATAL		# print only FATAL messages about the LOSS subsystem (i.e. disable almost all printing for timeit)
+	# print only FATAL messages about the LOSS subsystem (i.e. disable almost all printing for timeit)
+	enabled_subsystems[Subsystem.LOSS] = LogLevel.FATAL
 	
 	debug_show_images = False
+
+	min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
+					#				- 63 binary masks
+	#min_white_pixels = 100		# 1.45 s per mask (2.59 on CPU) - 49 binary masks
+	#min_white_pixels = 200		# 1.46 s per mask (2.81 on CPU) - 34 binary masks
+	#min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
+
+	#fn_prefix = 'Tree1197_1720692273'
+	fn_prefix = 'Tree53707_1720524644'
 	
 	color_palette_path = "color-palette.xlsx"
 	color_palette = read_color_palette(color_palette_path)
 	
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_palette: {color_palette}')
 	
-	imask_gt_fn     = '../instance-seg-loss-test/Tree1197_1720692273.png'
-	imask_gt        = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
+	imask_gt_fn       = f'../instance-seg-loss-test/{fn_prefix}.png'
+	imask_gt          = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
 	
-	imask_pred_fn   = f'../instance-seg-loss-test/Tree1197_1720692273-10px.png'
-	imask_pred      = cv2.imread(imask_pred_fn,     cv2.IMREAD_UNCHANGED)
+	imask_pred_fn     = f'../instance-seg-loss-test/{fn_prefix}-10px.png'
+	imask_pred        = cv2.imread(imask_pred_fn,     cv2.IMREAD_UNCHANGED)
+
+	colorid_file_path = f'../instance-seg-loss-test/{fn_prefix}.txt'
+	colorids_dict     = read_colorid_file(colorid_file_path)
+
 	
 	if debug_show_images:
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'These are the original GT and pred masks respectively: {imask_gt_fn} and {imask_pred_fn} with shape: {imask_gt.shape} and {imask_pred.shape}')
@@ -220,11 +239,8 @@ def main():
 	gt_mask		= torch.from_numpy(imask_gt).to(torch.uint8).to(device=device)
 	pred_mask	= torch.from_numpy(imask_pred).to(torch.uint8).to(device=device)
 	
-	colorid_file_path = '../instance-seg-loss-test/Tree1197_1720692273.txt'
-	colorids_dict	= read_colorid_file(colorid_file_path)
-
-	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, colorids_dict, min_white_pixels = 1000)
-	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, colorids_dict, min_white_pixels = 1000)
+	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, colorids_dict, min_white_pixels = min_white_pixels)
+	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, colorids_dict, min_white_pixels = min_white_pixels)
 	
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks: {len(gt_binary_masks)} - gt_labels: {len(gt_labels)}')
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)}')
@@ -237,7 +253,7 @@ def main():
 		sorted_binary_masks, sorted_labels, white_px_lst = sort_masks_and_labels(pred_binary_masks, pred_labels, pred_white_pixels)
 	    
 	# Print the sorted white pixel counts for verification
-	sorted_white_pixels = [torch.sum(mask) for mask in sorted_binary_masks]
+	sorted_white_pixels = [torch.sum(mask/255) for mask in sorted_binary_masks]
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'sorted_white_pixels: {sorted_white_pixels}')
 	
 	for idx, (binary_mask, label) in enumerate(zip(sorted_binary_masks, sorted_labels)):
@@ -248,9 +264,14 @@ def main():
 			if idx % 10 == 0 and idx != 0:
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
-	
-	loss = instance_segmentation_loss(gt_mask, pred_mask, colorids_dict, color_palette, min_white_pixels = 1000, debug_show_images = debug_show_images)
-	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss}')
+
+	start = datetime.datetime.now()
+	loss  = instance_segmentation_loss(gt_mask, pred_mask,
+			colorids_dict, color_palette,
+			min_white_pixels = min_white_pixels,
+			debug_show_images = debug_show_images)
+	end   = datetime.datetime.now()
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss} - elapsed time: {end-start}')
 	
 if __name__ == '__main__':
 	# python -m timeit "$(cat instance_seg_loss_3.py)"
