@@ -43,12 +43,12 @@ def set_model_paths(model_size):
 
     return sam2_checkpoint, model_cfg
 
-def create_model(model_size="small", checkpoint=None):
+def create_model(model_size="small", checkpoint=None, device='cuda'):
 	# Load a pretrained model
 
 	sam2_checkpoint, model_cfg = set_model_paths(model_size)
 
-	sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
+	sam2_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
 	
 	# Build net and load weights
 	predictor = SAM2ImagePredictor(sam2_model)

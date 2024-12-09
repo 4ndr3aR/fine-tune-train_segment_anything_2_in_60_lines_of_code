@@ -16,6 +16,8 @@ from dbgprint import trace, verbose, debug, info, warning, error, fatal
 from dbgprint import threading, sharedmemory, queues, network, train, validate, test, dataloader, predict, main, loss 
 from dbgprint import enabled_subsystems
 
+from collections import Counter
+
 import pandas as pd
 
 import datetime
@@ -52,43 +54,65 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 	
 	# Get unique colors in the mask
 	#unique_colors = np.unique(mask.reshape(-1, 3).cpu().numpy(), axis=0)
+
+	print(f'extract_binary_masks() - {type(colorids_dict) = }')
+	print(f'extract_binary_masks() - {type(color_palette) = }')
+	print(f'extract_binary_masks() - {len(colorids_dict) = }')
+	print(f'extract_binary_masks() - {len(color_palette) = }')
+	print(f'extract_binary_masks() - {len(mask) = }')
+	print(f'extract_binary_masks() - {type(mask[0]) = }')
+	print(f'extract_binary_masks() - {mask[0].shape = }')
+	print(f'extract_binary_masks() - {type(mask[1]) = }')
+	print(f'extract_binary_masks() - {mask[1].shape = }')
+	#print(f'{type(mask[2]) = }')
+	#print(f'{mask[2].shape = }')
+	if isinstance(mask, list):
+		mask = mask[0]
+
 	unique_colors = torch.unique(mask.reshape(-1, 3), dim=0)
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'Unique colors: {unique_colors.shape} - {unique_colors}')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'Unique colors: {unique_colors.shape} - {unique_colors}')
 	
 	# Initialize binary masks
 	binary_masks = []
 	labels = []
+	all_labels = []
 	white_px_lst = []
 	
 	for color_idx, color in enumerate(unique_colors):
 		# Check if the color is valid
 		color_palette_lst = [tuple(color_dict[color_id]) for color_dict in color_palette for color_id in color_dict]
-		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'Matching color: {color} with color palette as list: {color_palette_lst}')
+		'''
+		for color_dict in color_palette:
+			print(f'{color_dict = }')
+			for color_id in color_dict:
+				color_palette_lst.append(tuple(color_dict[color_id]))
+		'''
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'Matching color: {color} with color palette as list: {color_palette_lst}')
 		# Matching color: tensor([  0, 174, 141], device='cuda:1', dtype=torch.uint8)
 		color_tuple = tuple([color[2].item(), color[1].item(), color[0].item()])
 		# color_tuple: (tensor(141, device='cuda:1', dtype=torch.uint8), tensor(174, device='cuda:1', dtype=torch.uint8), tensor(0, device='cuda:1', dtype=torch.uint8))
 		#color_tuple = tuple(color)
 		# color_tuple: (tensor(0, device='cuda:1', dtype=torch.uint8), tensor(174, device='cuda:1', dtype=torch.uint8), tensor(141, device='cuda:1', dtype=torch.uint8))
 		# color_tuple: (tensor(255, device='cuda:1', dtype=torch.uint8), tensor(255, device='cuda:1', dtype=torch.uint8), tensor(255, device='cuda:1', dtype=torch.uint8))
-		dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_tuple: {color_tuple}')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'color_tuple: {color_tuple}')
 
 		label		= None								# 1 is tree, 0 is non-tree, 2 is <invalid color> (i.e. not in the color_palette)
 		binary_mask	= torch.all(mask == color, axis=2)				# we have the binary mask for the current color, should we append it?
 		white_pixels	= torch.sum(binary_mask)
-		dbgprint(Subsystem.LOSS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels')
 
 		if color_tuple in color_palette_lst:						# unique_colors (and hence color) is BGR again...
 			# Get the color ID
 			for color_dict in color_palette:
-				dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_dict: {color_dict}')
+				dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'color_dict: {color_dict}')
 				for color_id, c in color_dict.items():
-					dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_id: {color_id} - c: {c}')
-					dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'tuple(c): {tuple(c)}')
+					dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'color_id: {color_id} - c: {c}')
+					dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'tuple(c): {tuple(c)}')
 					if tuple(c) == tuple(color_tuple):
 						matched_color_idx = [color_id]
-						dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'matched_color_idx: {matched_color_idx}')
+						dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'matched_color_idx: {matched_color_idx}')
 			#matched_color_idx = [color_id for color_dict in color_palette for color_id, c in color_dict.items() if tuple(c) == tuple(color)]
-			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'matched_color_idx: {matched_color_idx}')
+			dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'matched_color_idx: {matched_color_idx}')
 			color_id = matched_color_idx[0]
 			
 			# Check if the color ID is in the color id file
@@ -102,15 +126,16 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 				#binary_mask = np.all(mask == color, axis=2)
 				#binary_masks.append(torch.from_numpy(binary_mask).bool())
 				label = 0					# Label for non-tree
-				dbgprint(Subsystem.LOSS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and color idx: {matched_color_idx} -> label: {label}')
+				dbgprint(Subsystem.MASKCOLORS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and color idx: {matched_color_idx} -> label: {label}')
 		else:
 			label = 2						# Label for invalid color, don't append (even if the mask is large, it makes no sense)
-			dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_tuple: {color_tuple} not in color_palette_lst')
-			dbgprint(Subsystem.LOSS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and label: {label}')
+			dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'color_tuple: {color_tuple} not in color_palette_lst')
+			dbgprint(Subsystem.MASKCOLORS, LogLevel.DEBUG, f'[{color_idx}] mask for color_tuple: {color_tuple} has {white_pixels} white pixels and label: {label}')
 			# Create a binary mask for the invalid color
 			#binary_mask = np.all(mask == color, axis=2)
 			#binary_masks.append(torch.from_numpy(binary_mask).bool())
 
+		all_labels.append(label)
 		# end of the loop, we need to decide if to append or skip
 		if white_pixels < min_white_pixels or label == 2:
 			continue						# skip
@@ -118,7 +143,7 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 		labels.append(label)						# append as well
 		white_px_lst.append(white_pixels)				# append as well
 
-	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'Appended {len(binary_masks)} masks - {len(labels)} labels - {len(white_px_lst)} white pixels')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.FATAL, f'Appended {len(binary_masks)} masks - {len(labels)} labels ({Counter(all_labels)}) - {len(white_px_lst)} white pixels')
 	
 	return binary_masks, labels, white_px_lst
 
@@ -274,6 +299,100 @@ def read_color_palette(color_palette_path):
 	color_palette =[{list(rgb_color_palette[idx].values())[0]: list(rgb_color_palette[idx].values())[1:]} for idx,itm in enumerate(rgb_color_palette)]
 	return color_palette
 
+def instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(gt_mask, pred_mask,
+									colorids_dict, color_palette,
+									min_white_pixels = 1000, debug_show_images = False, device='cuda'):
+	"""
+	Computes the instance segmentation loss using cross-entropy loss.
+	"""
+	start = datetime.datetime.now()
+
+	#small_masks_gpu = torch.stack(small_masks).to(device)
+	#gt_mask = torch.as_tensor(np.array(gt_mask)).permute(0, 3, 1, 2).to(device)
+	gt_mask = torch.as_tensor(np.array(gt_mask)).to(device)
+	dbgprint(train, LogLevel.INFO, f'{type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = } - {gt_mask.device = }')
+
+	gtbm_lst = []
+	gtl_lst  = []
+	gtwp_lst = []
+
+	for idx, gtm in enumerate(gt_mask):
+		gtbm, gtl, gtwp = extract_binary_masks(gtm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
+		gtbm_lst.append(gtbm)
+		gtl_lst.append(gtl)
+		gtwp_lst.append(gtwp)
+
+	prbm_lst = []
+	prl_lst  = []
+	prwp_lst = []
+
+	for idx, prm in enumerate(pred_mask):
+		prbm, prl, prwp = extract_binary_masks(prm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
+		prbm_lst.append(prbm)
+		prl_lst.append(prl)
+		prwp_lst.append(prwp)
+
+	gt_binary_masks, gt_labels, gt_white_pixels	  = torch.stack(gtbm_lst), torch.stack(gtl_lst), torch.stack(gtwp_lst)
+	pred_binary_masks, pred_labels, pred_white_pixels = torch.stack(prbm_lst), torch.stack(prl_lst), torch.stack(prwp_lst)
+
+	'''
+	gt_binary_masks, gt_labels, gt_white_pixels	  = extract_binary_masks(gt_mask  , color_palette, colorids_dict, min_white_pixels = min_white_pixels)
+	pred_binary_masks, pred_labels, pred_white_pixels = extract_binary_masks(pred_mask, color_palette, colorids_dict, min_white_pixels = min_white_pixels)
+	'''
+	
+	#colorids_dict = read_colorid_file(colorid_file_path)
+	sorted_gt_binary_masks, sorted_gt_labels, sorted_gt_white_px		= sort_masks_and_labels(gt_binary_masks,   gt_labels,	gt_white_pixels)
+	sorted_pred_binary_masks, sorted_pred_labels, sorted_pred_white_px	= sort_masks_and_labels(pred_binary_masks, pred_labels,	pred_white_pixels)
+
+	from costfn_1 import extract_bounding_boxes
+
+	gt_sorted_tensor   = torch.stack(gt_sorted_binary_masks).float() / 255
+	pred_sorted_tensor = torch.stack(pred_sorted_binary_masks).float() / 255
+	gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness             = extract_bounding_boxes(gt_sorted_tensor.unsqueeze(0))
+	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
+	end   = datetime.datetime.now()
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'Loss preprocessing time: {end-start}')
+
+	start = datetime.datetime.now()
+	seg_loss = torch.nn.functional.binary_cross_entropy(gt_sorted_tensor, pred_sorted_tensor, reduction='mean')
+	end   = datetime.datetime.now()
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'Segmentation loss: {seg_loss} - elapsed time: {end-start}')
+
+	from lossfn_1 import compute_loss
+	start = datetime.datetime.now()
+
+	thresholds = {}
+	weights = {}
+
+	thresholds['bboxes'] = 50
+	thresholds['white_pixels'] = 200 
+	thresholds['widths'] = 50
+	thresholds['heights'] = 50
+	thresholds['diagonals'] = 50
+	thresholds['roundness'] = 50
+
+	weights['bboxes'] = 1000
+	weights['white_pixels'] = 100 
+	weights['widths'] = 10
+	weights['heights'] = 10
+	weights['diagonals'] = 10
+	weights['roundness'] = 1 
+
+	feat_loss  = compute_loss(
+					(gt_bboxes,   gt_white_pixels,   gt_widths,   gt_heights,   gt_diags,   gt_roundness),
+					(pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness),
+					thresholds, weights)
+
+	end   = datetime.datetime.now()
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'Features loss: {feat_loss} - elapsed time: {end-start}')
+
+	loss = seg_loss + feat_loss
+
+	
+	return loss, end-start, seg_loss, feat_loss
+
+
+
 def main():
 	#device = 'cuda:0'
 	device = 'cuda:1'
@@ -284,6 +403,8 @@ def main():
 	#enabled_subsystems[Subsystem.LOSS] = LogLevel.FATAL
 	
 	debug_show_images = True
+
+	max_binary_masks = 100		# The max amount of "predicted with loss" masks inside the image (i.e. the N used to form a BxNxHxW tensor)
 
 	min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
 					#				- 63 binary masks
@@ -321,54 +442,104 @@ def main():
 	
 	gt_mask		= torch.from_numpy(imask_gt).to(torch.uint8).to(device=device)
 	pred_mask	= torch.from_numpy(imask_pred).to(torch.uint8).to(device=device)
-	
+
+	gt_mask		= gt_mask.unsqueeze(0)			# make it a batch (for realism...)
+	pred_mask	= pred_mask.unsqueeze(0)
+
+	'''
 	gt_binary_masks, gt_labels, gt_white_pixels		= extract_binary_masks(gt_mask,   color_palette, colorids_dict, min_white_pixels = min_white_pixels)
 	pred_binary_masks, pred_labels, pred_white_pixels	= extract_binary_masks(pred_mask, color_palette, colorids_dict, min_white_pixels = min_white_pixels)
+	'''
+	gtbm_lst = []
+	gtl_lst  = []
+	gtwp_lst = []
+
+	for gtm in gt_mask:	# loop over the batch
+		gtbm, gtl, gtwp = extract_binary_masks(gtm, color_palette, colorids_dict, min_white_pixels = min_white_pixels) # this extracts N binary masks
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(gtbm)    = } - {type(gtl)    = } - {type(gtwp)    = }')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(gtbm[0]) = } - {type(gtl[0]) = } - {type(gtwp[0]) = }')
+		gtbm_lst.append(torch.stack(gtbm))	# stack them and append the tensor to a list for later stacking
+		gtl_lst.append(gtl)
+		gtwp_lst.append(gtwp)
+
+	prbm_lst = []
+	prl_lst  = []
+	prwp_lst = []
+
+	for prm in pred_mask:
+		prbm, prl, prwp = extract_binary_masks(prm, color_palette, colorids_dict, min_white_pixels = min_white_pixels)
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(prbm)    = } - {type(prl)    = } - {type(prwp)    = }')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(prbm[0]) = } - {type(prl[0]) = } - {type(prwp[0]) = }')
+		prbm_lst.append(torch.stack(prbm))
+		prl_lst.append(prl)
+		prwp_lst.append(prwp)
+
+	#gt_binary_masks, gt_labels, gt_white_pixels	  = torch.stack(gtbm_lst), torch.stack(gtl_lst), torch.stack(gtwp_lst)
+	#gt_binary_masks   = torch.stack(gtbm_lst)	# now stack the list of binary masks and obtain a BxNxHxW tensor
+	gt_binary_masks   = gtbm_lst
+	#pred_binary_masks, pred_labels, pred_white_pixels = torch.stack(prbm_lst), torch.stack(prl_lst), torch.stack(prwp_lst)
+	#pred_binary_masks = torch.stack(prbm_lst)
+	pred_binary_masks = prbm_lst
+	gt_labels         = gtl_lst
+	pred_labels       = prl_lst
+	gt_white_pixels   = gtwp_lst
+	pred_white_pixels = prwp_lst
 	
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks: {len(gt_binary_masks)} - gt_labels: {len(gt_labels)}')
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)}')
-	
-	# Sort the binary masks and labels
-	gt_sorted_binary_masks,   gt_sorted_labels,   gt_sorted_white_px   = sort_masks_and_labels(gt_binary_masks,   gt_labels,   gt_white_pixels)
-	pred_sorted_binary_masks, pred_sorted_labels, pred_sorted_white_px = sort_masks_and_labels(pred_binary_masks, pred_labels, pred_white_pixels)
-	    
-	# Print the sorted white pixel counts for verification
-	gt_sorted_white_pixels = [torch.sum(mask/255) for mask in gt_sorted_binary_masks]
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_sorted_white_pixels: {gt_sorted_white_pixels}')
-	
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_binary_masks  : {len(gt_binary_masks)}   - gt_labels  : {len(gt_labels)  } - gt_white_pixels  : {len(gt_white_pixels)}')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'pred_binary_masks: {len(pred_binary_masks)} - pred_labels: {len(pred_labels)} - pred_white_pixels: {len(pred_white_pixels)}')
+
+	if False:
+		# Sort the binary masks and labels
+		gt_sorted_binary_masks,   gt_sorted_labels,   gt_sorted_white_px   = sort_masks_and_labels(gt_binary_masks,   gt_labels,   gt_white_pixels)
+		pred_sorted_binary_masks, pred_sorted_labels, pred_sorted_white_px = sort_masks_and_labels(pred_binary_masks, pred_labels, pred_white_pixels)
+		    
+		# Print the sorted white pixel counts for verification
+		gt_sorted_white_pixels = [torch.sum(mask/255) for mask in gt_sorted_binary_masks]
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_sorted_white_pixels: {gt_sorted_white_pixels}')
+
+		dbg_mask_idx = min(len(gt_sorted_binary_masks) - 1, 5)
+		from costfn_1 import extract_bounding_boxes, instance_segmentation_cost
+		from costfn_2 import extract_mask_features, mask_cost_function
+		gt_sorted_tensor   = torch.stack(gt_sorted_binary_masks).float() / 255
+		pred_sorted_tensor = torch.stack(pred_sorted_binary_masks).float() / 255
+		gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness             = extract_bounding_boxes(gt_sorted_tensor.unsqueeze(0))
+		pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes: {gt_bboxes[0][dbg_mask_idx]} - pred_bboxes: {pred_bboxes[0][dbg_mask_idx]}')
 
 
-	dbg_mask_idx = min(len(gt_sorted_binary_masks) - 1, 5)
-	from costfn_1 import extract_bounding_boxes, instance_segmentation_cost
-	from costfn_2 import extract_mask_features, mask_cost_function
-	gt_sorted_tensor   = torch.stack(gt_sorted_binary_masks).float() / 255
-	pred_sorted_tensor = torch.stack(pred_sorted_binary_masks).float() / 255
-	gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness             = extract_bounding_boxes(gt_sorted_tensor.unsqueeze(0))
-	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
+
+		'''
+		def inst_seg_cost(gt, pred):
+			gt_bboxes,   gt_white_pixels,   gt_widths,   gt_heights,   gt_diags,   gt_roundness   = gt
+			pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = pred
+	
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
+		'''
+	
+		gt_bboxes   = gt_bboxes.squeeze(0)
+		pred_bboxes = pred_bboxes.squeeze(0)
+	
+		for idx, (binary_mask, label) in enumerate(zip(gt_sorted_binary_masks, gt_sorted_labels)):
+			white_count = binary_mask[binary_mask != 0].shape[0]
+			dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
+			if debug_show_images:
+				debug_show_images_fn(idx, binary_mask, label, gt_bboxes, gt_widths, gt_heights, gt_diags, gt_roundness, 'gt')
+				debug_show_images_fn(idx, pred_sorted_binary_masks[idx], pred_sorted_labels[idx], pred_bboxes, pred_widths, pred_heights, pred_diags, pred_roundness, 'pred')
+				if idx % 2 == 0 and idx != 0:
+					cv2.waitKey(0)
+					cv2.destroyAllWindows()
+
+	dbg_mask_idx = min(len(gt_binary_masks) - 1, 5)
+	from costfn_1 import extract_bounding_boxes 
+	gt_unsorted_tensor   = torch.stack(gt_binary_masks).float()   / 255	# now stack the list of binary masks and obtain a BxNxHxW tensor
+	pred_unsorted_tensor = torch.stack(pred_binary_masks).float() / 255
+	gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness             = extract_bounding_boxes(gt_unsorted_tensor)
+	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = extract_bounding_boxes(pred_unsorted_tensor)
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes: {gt_bboxes[0][dbg_mask_idx]} - pred_bboxes: {pred_bboxes[0][dbg_mask_idx]}')
 
-	'''
-	def inst_seg_cost(gt, pred):
-		gt_bboxes,   gt_white_pixels,   gt_widths,   gt_heights,   gt_diags,   gt_roundness   = gt
-		pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = pred
-
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
-	'''
-
-	gt_bboxes   = gt_bboxes.squeeze(0)
-	pred_bboxes = pred_bboxes.squeeze(0)
-
-	for idx, (binary_mask, label) in enumerate(zip(gt_sorted_binary_masks, gt_sorted_labels)):
-		white_count = binary_mask[binary_mask != 0].shape[0]
-		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
-		if debug_show_images:
-			debug_show_images_fn(idx, binary_mask, label, gt_bboxes, gt_widths, gt_heights, gt_diags, gt_roundness, 'gt')
-			debug_show_images_fn(idx, pred_sorted_binary_masks[idx], pred_sorted_labels[idx], pred_bboxes, pred_widths, pred_heights, pred_diags, pred_roundness, 'pred')
-			if idx % 2 == 0 and idx != 0:
-				cv2.waitKey(0)
-				cv2.destroyAllWindows()
 
 	'''
 	start = datetime.datetime.now()
@@ -404,7 +575,6 @@ def main():
 				(pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness),
 				thresholds, weights)
 	end   = datetime.datetime.now()
-	print('porcoddue')
 	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss} - elapsed time: {end-start}')
 	
 if __name__ == '__main__':
