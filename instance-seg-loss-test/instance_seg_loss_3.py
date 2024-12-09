@@ -55,17 +55,18 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 	# Get unique colors in the mask
 	#unique_colors = np.unique(mask.reshape(-1, 3).cpu().numpy(), axis=0)
 
-	print(f'extract_binary_masks() - {type(colorids_dict) = }')
-	print(f'extract_binary_masks() - {type(color_palette) = }')
-	print(f'extract_binary_masks() - {len(colorids_dict) = }')
-	print(f'extract_binary_masks() - {len(color_palette) = }')
-	print(f'extract_binary_masks() - {len(mask) = }')
-	print(f'extract_binary_masks() - {type(mask[0]) = }')
-	print(f'extract_binary_masks() - {mask[0].shape = }')
-	print(f'extract_binary_masks() - {type(mask[1]) = }')
-	print(f'extract_binary_masks() - {mask[1].shape = }')
-	#print(f'{type(mask[2]) = }')
-	#print(f'{mask[2].shape = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {type(colorids_dict) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {type(color_palette) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {len(colorids_dict) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {len(color_palette) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {len(mask) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {type(mask[0]) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {mask[0].shape = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {type(mask[1]) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks() - {mask[1].shape = }')
+
+	cv2.imwrite(f'/tmp/mask-{datetime.datetime.now()}.png', mask.detach().cpu().numpy())
+
 	if isinstance(mask, list):
 		mask = mask[0]
 
@@ -143,7 +144,9 @@ def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 
 		labels.append(label)						# append as well
 		white_px_lst.append(white_pixels)				# append as well
 
-	dbgprint(Subsystem.MASKCOLORS, LogLevel.FATAL, f'Appended {len(binary_masks)} masks - {len(labels)} labels ({Counter(all_labels)}) - {len(white_px_lst)} white pixels')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.WARNING, f'Appended {len(binary_masks)} masks - {len(labels)} labels ({Counter(all_labels)}) - {len(white_px_lst)} white pixels')
+	if len(binary_masks) == 0: 
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.FATAL, f'Appended {len(binary_masks)} masks - {len(labels)} labels ({Counter(all_labels)}) - {len(white_px_lst)} white pixels - please double check that images are correctly converted from BGR to RGB (or vice versa) according to the color palette...')
 	
 	return binary_masks, labels, white_px_lst
 
