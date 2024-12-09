@@ -89,64 +89,6 @@ def get_bounding_boxes(masks):
     
     return boxes
 
-'''
-def get_bounding_boxes(mask_tensor):
-  """
-  Computes bounding boxes for binary segmentation masks.
-
-  Args:
-    mask_tensor: A PyTorch tensor of shape [B, N, H, W] representing a batch of binary segmentation masks.
-
-  Returns:
-    A tensor of shape [B, N, 4] representing the bounding boxes, 
-    where each box is in the format [x_min, y_min, x_max, y_max].
-  """
-
-  mask_nonzero = torch.nonzero(mask_tensor, as_tuple=False).T
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(mask_nonzero, dim=0)[:2][0] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(mask_nonzero, dim=0)[:2][1] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(mask_nonzero, dim=0)[:2][0] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(mask_nonzero, dim=0)[:2][1] = }')
-
-  # Get the coordinates of the bounding boxes
-  min_vals = torch.min(mask_nonzero, dim=0)[:2].unsqueeze(1)
-  max_vals = torch.max(mask_nonzero, dim=0)[:2].unsqueeze(1)
-
-  # Combine min and max values to form bounding boxes
-  bounding_boxes = torch.cat((min_vals, max_vals), dim=1)
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
-
-
-  # Find the coordinates of non-zero elements
-  nonzero_indices = torch.nonzero(mask_tensor)
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices.shape = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'nonzero_indices: {nonzero_indices}')
-  for i in range(len(nonzero_indices)):
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[i] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 0] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 1] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 2] = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{nonzero_indices[:, 3] = }')
-
-
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(nonzero_indices[:, 2], dim=0) = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.min(nonzero_indices[:, 3], dim=0) = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(nonzero_indices[:, 2], dim=0) = }')
-  dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.max(nonzero_indices[:, 3], dim=0) = }')
-
-  # Get the minimum and maximum coordinates for each mask
-  x_min = torch.min(nonzero_indices[:, 2], dim=0)[0]
-  y_min = torch.min(nonzero_indices[:, 3], dim=0)[0]
-  x_max = torch.max(nonzero_indices[:, 2], dim=0)[0]
-  y_max = torch.max(nonzero_indices[:, 3], dim=0)[0]
-
-  # Stack the coordinates to form the bounding boxes
-  bounding_boxes = torch.stack((x_min, y_min, x_max, y_max), dim=1)
-
-  return bounding_boxes
-'''
-
 def extract_bounding_boxes(masks):
     """
     Extract bounding boxes, white pixel count, width, height, diagonal, and roundness index from binary masks.
@@ -172,24 +114,9 @@ def extract_bounding_boxes(masks):
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.nonzero(masks[0, max_dbg_idx].view(-1), as_tuple=False) = }')
     for idx in range(max_dbg_idx):
         dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, idx]) = }')
-    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 1]) = }')
-    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 2]) = }')
-    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 3]) = }')
-    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 4]) = }')
-    #dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0, 5]) = }')
+
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{torch.sum(masks[0], dim=(1, 2)) = }')
     B, N, H, W = masks.shape
-
-    '''    
-    # This one takes one order magnitude more than the other...
-    start = datetime.datetime.now()
-    bounding_boxes = masks_to_bounding_boxes_vectorized(masks)
-    end   = datetime.datetime.now()
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'elapsed time: {end-start}')
-
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
-    '''    
 
     start = datetime.now()
     bounding_boxes = get_bounding_boxes(masks)
@@ -199,42 +126,12 @@ def extract_bounding_boxes(masks):
     dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'{bounding_boxes.shape = }')
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes = }')
     dbgprint(Subsystem.LOSS, LogLevel.INFO,  f'{bounding_boxes[0:max_dbg_idx] = }')
-    #white_pixels, widths, heights, diagonals, roundness_indices = None, None, None, None, None
-    #return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
 
 
     white_pixels = num_white_pixels_in_binary_mask(masks)
     dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{white_pixels.shape = }')
     dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{white_pixels = }')
 
-    '''
-    # Find the coordinates of white pixels
-    #white_coords = torch.nonzero(masks.view(B, N, -1), as_tuple=False)
-    white_coords = torch.sum(masks.view(B, N, -1), dim=2)
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_coords.shape = }')
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{white_coords[0] = }')
-    
-    # Extract bounding box coordinates
-    min_coords, _ = white_coords.view(B, N, -1, 2).min(dim=2)
-    max_coords, _ = white_coords.view(B, N, -1, 2).max(dim=2)
-    bounding_boxes = torch.cat([min_coords, max_coords], dim=1)
-    dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{bounding_boxes.shape = }')
-    '''
-
-    '''
-            y_min = white_pixels[0].min()
-            x_min = white_pixels[1].min()
-            y_max = white_pixels[0].max()
-            x_max = white_pixels[1].max()
-
-            bbox = [x_min.item(), y_min.item(), x_max.item(), y_max.item()]
-    '''
-    
-    '''
-    # Count the number of white pixels in each mask
-    white_pixels = masks.view(B, -1).sum(dim=1)
-    '''
-    
     # Calculate width, height, and diagonal of each bounding box
     widths	= bounding_boxes[:, :, 2] - bounding_boxes[:, :, 0] + 1
     dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{widths.shape = }')
