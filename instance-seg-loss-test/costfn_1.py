@@ -94,16 +94,16 @@ def extract_bounding_boxes(masks):
     Extract bounding boxes, white pixel count, width, height, diagonal, and roundness index from binary masks.
     
     Args:
-        masks (torch.Tensor): 4D tensor of binary masks (BxCxHxW).
+        masks (torch.Tensor): 4D tensor of binary masks (BxNxHxW).
     
     Returns:
         tuple: A tuple containing the following tensors:
-            - bounding_boxes (torch.Tensor): Bounding box coordinates (Bx4), format: (x1, y1, x2, y2).
-            - white_pixels (torch.Tensor): Number of white pixels in each mask (B).
-            - widths (torch.Tensor): Width of each bounding box (B).
-            - heights (torch.Tensor): Height of each bounding box (B).
-            - diagonals (torch.Tensor): Diagonal length of each bounding box (B).
-            - roundness_indices (torch.Tensor): Roundness index of the white content in each mask (B).
+            - bounding_boxes (torch.Tensor): Bounding box coordinates (BxNx4), format: (x1, y1, x2, y2).
+            - white_pixels (torch.Tensor): Number of white pixels in each mask (BxN).
+            - widths (torch.Tensor): Width of each bounding box (BxN).
+            - heights (torch.Tensor): Height of each bounding box (BxN).
+            - diagonals (torch.Tensor): Diagonal length of each bounding box (BxN).
+            - roundness (torch.Tensor): Roundness index of the white content in each mask (BxN).
     """
     dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'{masks.shape = }')
 
@@ -146,14 +146,14 @@ def extract_bounding_boxes(masks):
     # Calculate roundness index
     areas = white_pixels
     perimeters = 2 * (widths + heights)
-    roundness_indices = 4 * torch.pi * areas / (perimeters**2 + 1e-6)
-    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness_indices.shape = }')
-    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness_indices = }')
+    roundness = 4 * torch.pi * areas / (perimeters**2 + 1e-6)
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness.shape = }')
+    dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{roundness = }')
     
-    return bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices
+    return bounding_boxes, white_pixels, widths, heights, diagonals, roundness
 
 
-def instance_segmentation_cost(bounding_boxes, white_pixels, widths, heights, diagonals, roundness_indices,
+def instance_segmentation_cost(bounding_boxes, white_pixels, widths, heights, diagonals, roundness,
                                bbox_weight=10.0, wh_weight=5.0, pixel_weight=3.0, diag_weight=1.0, round_weight=1.0):
     """
     Calculate the cost for instance segmentation based on extracted features.
@@ -164,7 +164,7 @@ def instance_segmentation_cost(bounding_boxes, white_pixels, widths, heights, di
         widths (torch.Tensor): Width of each bounding box (B).
         heights (torch.Tensor): Height of each bounding box (B).
         diagonals (torch.Tensor): Diagonal length of each bounding box (B).
-        roundness_indices (torch.Tensor): Roundness index of the white content in each mask (B).
+        roundness (torch.Tensor): Roundness index of the white content in each mask (B).
         bbox_weight (float): Weight for bounding box position cost.
         wh_weight (float): Weight for width/height cost.
         pixel_weight (float): Weight for white pixel count cost.
@@ -178,7 +178,7 @@ def instance_segmentation_cost(bounding_boxes, white_pixels, widths, heights, di
     wh_cost = wh_weight * (widths + heights)
     pixel_cost = pixel_weight * white_pixels
     diag_cost = diag_weight * diagonals
-    round_cost = round_weight * (1 - roundness_indices)
+    round_cost = round_weight * (1 - roundness)
     
     total_cost = bbox_cost + wh_cost + pixel_cost + diag_cost + round_cost
     return total_cost

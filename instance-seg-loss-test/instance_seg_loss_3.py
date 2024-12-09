@@ -244,7 +244,7 @@ def instance_segmentation_loss_2(gt_mask, pred_mask, colorids_dict, color_palett
     end = datetime.datetime.now()
     return loss, end - start
 
-def debug_show_images_fn(idx, binary_mask, label, bboxes, widths, heights, diags, roundness_indices, display_name):
+def debug_show_images_fn(idx, binary_mask, label, bboxes, widths, heights, diags, roundness, display_name):
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{bboxes[idx].cpu().numpy() = }')
 	cv2img = binary_mask.cpu().numpy()
 	cv2img = cv2.cvtColor(cv2img, cv2.COLOR_GRAY2BGR)
@@ -255,7 +255,7 @@ def debug_show_images_fn(idx, binary_mask, label, bboxes, widths, heights, diags
 	w = int(widths[0][idx].cpu().numpy())
 	h = int(heights[0][idx].cpu().numpy())
 	d = int(diags[0][idx].cpu().numpy())
-	r = int(roundness_indices[0][idx].cpu().numpy()*100)
+	r = int(roundness[0][idx].cpu().numpy()*100)
 	cv2.line(cv2img, (x[0],  y[1]+3), (x[0]+w, y[1]+3), color=(255,0,0),   thickness=2) 
 	cv2.line(cv2img, (x[0]-3,y[1]),   (x[0]-3, y[1]-h), color=(0,255,0),   thickness=2) 
 	cv2.line(cv2img, (x[0],  y[1]+6), (x[0]+d, y[1]+6), color=(0,0,255),   thickness=2) 
@@ -285,21 +285,23 @@ def main():
 	
 	debug_show_images = True
 
-	#min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
+	min_white_pixels = 50		# This is probably the "real maximum" that makes sense (over a 480x270 px mask), but it's 1.48 s per mask (2.73 on CPU)
 					#				- 63 binary masks
 	#min_white_pixels = 100		# 1.45 s per mask (2.59 on CPU) - 49 binary masks
 	#min_white_pixels = 200		# 1.46 s per mask (2.81 on CPU) - 34 binary masks
-	min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
+	#min_white_pixels = 1000	# 1.44 s per mask (2.67 on CPU) - 13 binary masks
 
 	#fn_prefix = 'Tree1197_1720692273'
 	#fn_prefix = 'Tree53707_1720524644'
-	fn_prefix = 'test-mask-'
+	#fn_prefix = 'test-mask-'
+	fn_prefix = 'displacement-test-mask-'
 	
 	color_palette_path = "color-palette.xlsx"
 	color_palette = read_color_palette(color_palette_path)
 	
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'color_palette: {color_palette}')
 	
+	#imask_gt_fn       = f'../instance-seg-loss-test/{fn_prefix}.png'
 	imask_gt_fn       = f'../instance-seg-loss-test/{fn_prefix}1.png'
 	imask_gt          = cv2.imread(imask_gt_fn,       cv2.IMREAD_UNCHANGED)
 	
@@ -341,32 +343,68 @@ def main():
 	from costfn_2 import extract_mask_features, mask_cost_function
 	gt_sorted_tensor   = torch.stack(gt_sorted_binary_masks).float() / 255
 	pred_sorted_tensor = torch.stack(pred_sorted_binary_masks).float() / 255
-	gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness_indices             = extract_bounding_boxes(gt_sorted_tensor.unsqueeze(0))
-	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness_indices = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
+	gt_bboxes, gt_white_pixels, gt_widths, gt_heights, gt_diags, gt_roundness             = extract_bounding_boxes(gt_sorted_tensor.unsqueeze(0))
+	pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = extract_bounding_boxes(pred_sorted_tensor.unsqueeze(0))
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
 	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes: {gt_bboxes[0][dbg_mask_idx]} - pred_bboxes: {pred_bboxes[0][dbg_mask_idx]}')
 
+	'''
+	def inst_seg_cost(gt, pred):
+		gt_bboxes,   gt_white_pixels,   gt_widths,   gt_heights,   gt_diags,   gt_roundness   = gt
+		pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness = pred
+
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
+		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'gt_bboxes.shape: {gt_bboxes.shape} - pred_bboxes.shape: {pred_bboxes.shape}')
+	'''
 
 	gt_bboxes   = gt_bboxes.squeeze(0)
 	pred_bboxes = pred_bboxes.squeeze(0)
-
 
 	for idx, (binary_mask, label) in enumerate(zip(gt_sorted_binary_masks, gt_sorted_labels)):
 		white_count = binary_mask[binary_mask != 0].shape[0]
 		dbgprint(Subsystem.LOSS, LogLevel.INFO, f'binary_mask: {binary_mask.shape} - label: {label} - white_count: {white_count}')
 		if debug_show_images:
-			debug_show_images_fn(idx, binary_mask, label, gt_bboxes, gt_widths, gt_heights, gt_diags, gt_roundness_indices, 'gt')
-			debug_show_images_fn(idx, pred_sorted_binary_masks[idx], pred_sorted_labels[idx], pred_bboxes, pred_widths, pred_heights, pred_diags, pred_roundness_indices, 'pred')
+			debug_show_images_fn(idx, binary_mask, label, gt_bboxes, gt_widths, gt_heights, gt_diags, gt_roundness, 'gt')
+			debug_show_images_fn(idx, pred_sorted_binary_masks[idx], pred_sorted_labels[idx], pred_bboxes, pred_widths, pred_heights, pred_diags, pred_roundness, 'pred')
 			if idx % 2 == 0 and idx != 0:
 				cv2.waitKey(0)
 				cv2.destroyAllWindows()
 
+	'''
 	start = datetime.datetime.now()
 	loss  = instance_segmentation_loss_2(gt_mask, pred_mask,
 			colorids_dict, color_palette,
 			min_white_pixels = min_white_pixels,
 			debug_show_images = debug_show_images)
 	end   = datetime.datetime.now()
+	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss} - elapsed time: {end-start}')
+	'''
+	from lossfn_1 import compute_loss
+	start = datetime.datetime.now()
+
+	thresholds = {}
+	weights = {}
+
+	thresholds['bboxes'] = 50
+	thresholds['white_pixels'] = 200
+	thresholds['widths'] = 50
+	thresholds['heights'] = 50
+	thresholds['diagonals'] = 50
+	thresholds['roundness'] = 50
+
+	weights['bboxes'] = 1000
+	weights['white_pixels'] = 100
+	weights['widths'] = 10
+	weights['heights'] = 10
+	weights['diagonals'] = 10
+	weights['roundness'] = 1
+
+	loss  = compute_loss(
+				(gt_bboxes,   gt_white_pixels,   gt_widths,   gt_heights,   gt_diags,   gt_roundness),
+				(pred_bboxes, pred_white_pixels, pred_widths, pred_heights, pred_diags, pred_roundness),
+				thresholds, weights)
+	end   = datetime.datetime.now()
+	print('porcoddue')
 	dbgprint(Subsystem.LOSS, LogLevel.FATAL, f'loss: {loss} - elapsed time: {end-start}')
 	
 if __name__ == '__main__':
