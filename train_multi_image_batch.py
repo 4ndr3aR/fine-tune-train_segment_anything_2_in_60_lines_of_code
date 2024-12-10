@@ -3,6 +3,8 @@
 import os
 import argparse
 
+import torchvision
+
 # Create a sub-dataset with fewer images
 
 #> for dir in `ls -d */ | grep -v __` ; do echo "===================== $dir ===================" ; cd $dir ; mkdir -p /tmp/ramdrive/spread-mini/$dir ; for subdir in rgb semantic_segmentation instance_segmentation ; do echo $subdir ; mkdir -p /tmp/ramdrive/spread-mini/$dir/$subdir ; rsync $subdir/Tree11*.png /tmp/ramdrive/spread-mini/$dir$subdir ; done ; cd .. ; pwd ; echo '----------------------------------------------------' ; done
@@ -625,7 +627,7 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 								repeat_image=False,
 								high_res_features=high_res_features,)
 
-	dbgprint(predict, LogLevel.TRACE, f'5. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
+	dbgprint(predict, LogLevel.INFO, f'5. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
 	dbgprint(predict, LogLevel.INFO, f'6. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
 	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
 	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
@@ -709,7 +711,7 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-			pred_masks, pred_scores		= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
+			pred_masks, pred_scores, low_res_masks	= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			loss, seg_loss, score_loss, iou	= None, None, None, None
 			total_oldseg_loss, ce, dice, focal, iou	= None, None, None, None, None
@@ -899,7 +901,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 
 		for idx in range(len(low_res_masks)):
 			dbgprint(train, LogLevel.INFO, f'Saving low_res_masks[{idx}] = {low_res_masks[idx].shape = } to /tmp')
-			np_lrm = low_res_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy()
+			np_lrm = low_res_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy() * 255
 			cv2.imwrite(f'/tmp/low_res_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
 
 
@@ -914,7 +916,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 			loss += instance_segmentation_loss(gt_mask, pred_mask, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = True)
 		'''
 		
-		loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, pred_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
+		loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
 
 
 		'''

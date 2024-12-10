@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 
-import torch
-import numpy as np
 import os
-
 import sys
+
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 #sys.path.append(str('/mnt/raid1/repos/sam2/fine-tune-train_segment_anything_2_in_60_lines_of_code'))		# use this for `python -m timeit "$(cat instance_seg_loss_3.py)"`
+
+import numpy as np
+
+import torch
+
+from torchvision.transforms.v2 import Resize
+from torchvision.transforms.v2 import functional as F, InterpolationMode, Transform
+#import torchvision.transforms.functional as TTF
+#from TTF import InterpolationMode
 
 from dbgprint import dbgprint
 #from dbgprint import *
@@ -308,6 +315,101 @@ def read_color_palette(color_palette_path, invert_to_bgr=False):
 			color_palette.append({values[0]: (values[1:][2], values[1:][1], values[1:][0])})
 	return color_palette
 
+
+
+
+
+
+
+import torch
+
+def rgb_to_binary(images, max_colors=50):
+    """
+    Convert a batch of RGB images into binary images based on unique colors.
+
+    Args:
+    images (torch.Tensor): Batch of RGB images with shape [B, H, W, 3].
+    max_colors (int): Maximum number of colors to consider. Default is 50.
+
+    Returns:
+    binary_images (torch.Tensor): Batch of binary images with shape [B, max_colors, H, W].
+    """
+    # Get the batch size, height, and width of the images
+    B, H, W, _ = images.shape
+
+    # Initialize the binary images tensor with zeros
+    binary_images = torch.zeros((B, max_colors, H, W), device=images.device, dtype=torch.uint8)
+
+    # Iterate over each image in the batch
+    for i in range(B):
+        # Get the unique colors in the current image
+        unique_colors = torch.unique(images[i].reshape(-1, 3), dim=0)
+
+        # Iterate over each unique color
+        for j, color in enumerate(unique_colors):
+            # Create a binary mask for the current color
+            mask = (images[i] == color).all(dim=-1)
+
+            # Assign the binary mask to the corresponding color index in the binary images tensor
+            binary_images[i, j] = mask
+
+    return binary_images * 255
+
+
+import torch
+
+def convert_to_binary_batch(image_batch, max_colors=50):
+    """
+    Converts a batch of images with unique colors to a batch of binary images.
+
+    Args:
+        image_batch: A torch.Tensor of shape [B, H, W, 3] representing the batch of images.
+        max_colors: The maximum number of colors to consider. Padding will be added for fewer colors.
+
+    Returns:
+        A torch.Tensor of shape [B, max_colors, H, W] representing the batch of binary images.
+    """
+
+    batch_size, height, width, channels = image_batch.shape
+    binary_batch = torch.zeros((batch_size, max_colors, height, width), dtype=torch.uint8, device=image_batch.device)
+
+    for b in range(batch_size):
+        unique_colors = torch.unique(image_batch[b].view(-1, 3), dim=0)
+        num_colors = unique_colors.shape[0]
+
+        for n in range(min(num_colors, max_colors)):
+            # Use broadcasting for efficient comparison
+            binary_batch[b, n, :, :] = (image_batch[b] == unique_colors[n]).all(dim=2).to(torch.uint8)
+
+    return binary_batch * 255
+
+'''
+# Example usage with your provided data:
+image_batch = torch.randint(0, 256, (2, 270, 480, 3), dtype=torch.uint8).cuda()  # Example batch
+
+# Simulate some unique colors (replace with your actual unique color generation)
+for b in range(2):
+    unique_colors = torch.randint(0, 256, (28, 3), dtype=torch.uint8).cuda()
+    indices = torch.randint(0, 28, (270 * 480,), dtype=torch.long).cuda()
+    image_batch[b] = unique_colors[indices].view(270, 480, 3)
+
+
+
+binary_batch = convert_to_binary_batch(image_batch, max_colors=50)
+print(binary_batch.shape)  # Output: torch.Size([2, 50, 270, 480])
+
+
+# Verification (Optional): Check if the sum across the color dimension reconstructs a single-channel image similar to a grayscale version of the original.
+# reconstructed_image = binary_batch.sum(dim=1)
+'''
+
+
+
+
+
+
+
+
 def instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(gt_mask, pred_mask,
 									colorids_dict, color_palette,
 									min_white_pixels = 1000, debug_show_images = False, device='cuda'):
@@ -318,23 +420,50 @@ def instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(gt_mask, pre
 
 	#small_masks_gpu = torch.stack(small_masks).to(device)
 	#gt_mask = torch.as_tensor(np.array(gt_mask)).permute(0, 3, 1, 2).to(device)
-	gt_mask = torch.as_tensor(np.array(gt_mask)).to(device)
-	dbgprint(train, LogLevel.INFO, f'{type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = } - {gt_mask.device = }')
+	gt_mask   = torch.as_tensor(np.array(gt_mask)).to(device)
+	#pred_mask = pred_mask #* 255
+	# InterpolationMode.NEAREST_EXACT is the correct one: https://github.com/pytorch/pytorch/issues/62237
+	sz = [gt_mask.shape[1], gt_mask.shape[2]]
+	print(f'{sz = }')
+	preds_tfm = Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
+	pred_mask = preds_tfm(pred_mask.to(torch.uint8)).permute(0, 2, 3, 1)
+	for idx in range(pred_mask.shape[0]):
+		print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {pred_mask[idx].shape = }')
+		cv2.imwrite(f'/tmp/pred_mask-resized-permuted-{idx}-{datetime.datetime.now()}.png', pred_mask[idx].cpu().numpy())
+	#pred_mask_binarized = images_to_binary_masks(pred_mask, max_colors=50)
+	#pred_mask_binarized = color_to_binary_batch(pred_mask, max_colors=50)
+	#pred_mask_binarized = rgb_to_binary(pred_mask, max_colors=50)
+	pred_mask_binarized = convert_to_binary_batch(pred_mask, max_colors=50)
+	print(f'{pred_mask_binarized.shape = }')
+	for idx in range(pred_mask_binarized.shape[0]):
+		for jdx in range(pred_mask_binarized[idx].shape[0]):
+			print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {jdx} {pred_mask_binarized[idx][jdx].shape = }')
+			cv2.imwrite(f'/tmp/pred_mask-binarized-{idx}-{jdx}-{datetime.datetime.now()}.png', pred_mask_binarized[idx][jdx].cpu().numpy())
 
 	gtbm_lst = []
 	gtl_lst  = []
 	gtwp_lst = []
 
+	# gt_mask.shape = torch.Size([2, 270, 480, 3]) - gt_mask.dtype = torch.uint8
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = } - {gt_mask.device = }')
 	for idx, gtm in enumerate(gt_mask):
 		gtbm, gtl, gtwp = extract_binary_masks(gtm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
 		gtbm_lst.append(gtbm)
 		gtl_lst.append(gtl)
 		gtwp_lst.append(gtwp)
 
+	for idx in range(len(gtbm_lst)):
+		for jdx in range(len(gtbm_lst[idx])):
+			print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {jdx} {gtbm_lst[idx][jdx].shape = }')
+			cv2.imwrite(f'/tmp/gt_mask-binarized-{idx}-{jdx}-{datetime.datetime.now()}.png', gtbm_lst[idx][jdx].cpu().numpy())
+
 	prbm_lst = []
 	prl_lst  = []
 	prwp_lst = []
 
+	# pred_mask.shape = torch.Size([2, 3, 256, 256]) - pred_mask.dtype = torch.float16
+	# pred_mask.shape = torch.Size([2, 256, 480, 3]) - pred_mask.dtype = torch.uint8
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(pred_mask) = } - {pred_mask.shape = } - {pred_mask.dtype = } - {pred_mask.device = }')
 	for idx, prm in enumerate(pred_mask):
 		prbm, prl, prwp = extract_binary_masks(prm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
 		prbm_lst.append(prbm)
