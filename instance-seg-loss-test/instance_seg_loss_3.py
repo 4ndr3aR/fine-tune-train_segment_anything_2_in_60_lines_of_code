@@ -296,10 +296,16 @@ def debug_show_images_fn(idx, binary_mask, label, bboxes, widths, heights, diags
 #pred_mask = torch.randint(0, 256, (3, 256, 256), dtype=torch.uint8)
 #colorid_file_path = 'path/to/colorid/file.txt'
 
-def read_color_palette(color_palette_path):
+def read_color_palette(color_palette_path, invert_to_bgr=False):
 	raw_color_palette = pd.read_excel(color_palette_path)  # 4 cols: Index, R, G, B
 	rgb_color_palette = raw_color_palette.to_dict(orient='records')
-	color_palette =[{list(rgb_color_palette[idx].values())[0]: list(rgb_color_palette[idx].values())[1:]} for idx,itm in enumerate(rgb_color_palette)]
+	color_palette = []
+	if not invert_to_bgr:
+		color_palette = [{list(rgb_color_palette[idx].values())[0]: list(rgb_color_palette[idx].values())[1:]} for idx,itm in enumerate(rgb_color_palette)]
+	else:
+		for idx,itm in enumerate(rgb_color_palette):
+			values = list(rgb_color_palette[idx].values())		# because values is a dict_values type
+			color_palette.append({values[0]: (values[1:][2], values[1:][1], values[1:][0])})
 	return color_palette
 
 def instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(gt_mask, pred_mask,

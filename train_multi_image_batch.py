@@ -383,7 +383,8 @@ class SpreadDataset(Dataset):
 			SpreadDataset._data = self._load_data(data_dir)
 
 		self.data          = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
-		self.color_palette = read_color_palette(color_palette_path)
+		self.color_palette = read_color_palette(color_palette_path, invert_to_bgr=True)
+		dbgprint(dataloader, LogLevel.INFO, f"Loaded color palette: {self.color_palette}")
 
 	def _load_data(self, data_dir):
 		# Collect all data entries
@@ -625,13 +626,14 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 								high_res_features=high_res_features,)
 
 	dbgprint(predict, LogLevel.TRACE, f'5. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
-	dbgprint(predict, LogLevel.TRACE, f'6. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
-	dbgprint(predict, LogLevel.TRACE, f'7. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
+	dbgprint(predict, LogLevel.INFO, f'6. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
+	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
+	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
 	# Upscale the masks to the original image resolution
 	pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
 	dbgprint(predict, LogLevel.TRACE, f'8. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
 
-	return pred_masks, pred_scores
+	return pred_masks, pred_scores, low_res_masks
 
 def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weight=0.05):
 	# Segmentaion Loss caclulation
@@ -881,7 +883,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	dbgprint(train, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 	dbgprint(train, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-	pred_masks, pred_scores 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
+	pred_masks, pred_scores, low_res_masks 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
 							mask_logits=None, normalize_coords=True)
 
 	loss, seg_loss, score_loss, iou	 = None, None, None, None
@@ -893,6 +895,14 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	elif 'spread' in dataset_name:
 		#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 		seg_loss, score_loss, iou = None, None, None
+
+
+		for idx in range(len(low_res_masks)):
+			dbgprint(train, LogLevel.INFO, f'Saving low_res_masks[{idx}] = {low_res_masks[idx].shape = } to /tmp')
+			np_lrm = low_res_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy()
+			cv2.imwrite(f'/tmp/low_res_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
+
+
 		#gt_mask = masks
 		#pred_mask = pred_masks
 		#gt_mask  = torch.tensor(np.array(masks).astype(np.float32)).permute(0, 3, 1, 2).cuda()
@@ -1134,6 +1144,7 @@ if __name__ == "__main__":
 	#predictor	= SAM2ImagePredictor(sam2_model)
 	dbgprint(main, LogLevel.INFO, f"Creating SAM2 model...")
 	predictor	= create_model(model_size)				# checkpoint=None, don't load any pretrained weights
+	dbgprint(main, LogLevel.TRACE, f"Predictor created the following model:\n{predictor.model}")
 
 	# Magic
 	if use_wandb:
