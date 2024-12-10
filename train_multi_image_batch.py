@@ -3,8 +3,6 @@
 import os
 import argparse
 
-import torchvision
-
 # Create a sub-dataset with fewer images
 
 #> for dir in `ls -d */ | grep -v __` ; do echo "===================== $dir ===================" ; cd $dir ; mkdir -p /tmp/ramdrive/spread-mini/$dir ; for subdir in rgb semantic_segmentation instance_segmentation ; do echo $subdir ; mkdir -p /tmp/ramdrive/spread-mini/$dir/$subdir ; rsync $subdir/Tree11*.png /tmp/ramdrive/spread-mini/$dir$subdir ; done ; cd .. ; pwd ; echo '----------------------------------------------------' ; done
@@ -77,8 +75,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 #from F import InterpolationMode
-from torchvision.transforms import Resize
-import torchvision.transforms.functional as TTF
+#from torchvision.transforms import Resize
+#import torchvision.transforms.functional as TTF
+
+from torchvision.transforms.v2 import Resize
+from torchvision.transforms.v2 import functional as F, InterpolationMode, Transform
+
 
 import pdb
 print(f'Loading cv2...')
@@ -612,8 +614,21 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 
 	predictor.set_image_batch(image)				# apply SAM image encoder to the image
 
+
+		#prd_msk  = torch.sigmoid(pred_mask[:, 0]).detach().cpu().numpy()
+
+	sz = [256, 256] # always for SAM masks
+	resize_tfm   = Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
+	#resized_mask = resize_tfm(torch.stack(mask, dim=0).to(torch.uint8)).permute(0, 2, 3, 1)
+	resized_mask = resize_tfm(torch.stack([torch.from_numpy(item).float() for item in mask], dim=0).permute(0, 3, 1, 2)).to(torch.float16).to(device=predictor.device)
+	dbgprint(predict, LogLevel.INFO, f'5. - {type(resized_mask[0])  = } - {resized_mask[0].shape  = } - {resized_mask[0].dtype = } - {resized_mask[0].device = }')
+
 	mask_input, unnorm_coords, labels, unnorm_box	= predictor._prep_prompts(input_point, input_label, box=box, mask_logits=mask_logits, normalize_coords=normalize_coords)
-	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
+	#sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
+
+	# https://github.com/facebookresearch/segment-anything/issues/242
+	# https://github.com/facebookresearch/segment-anything/issues/169
+	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if resized_mask is None else resized_mask)
 
 	# mask decoder
 
@@ -627,13 +642,13 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 								repeat_image=False,
 								high_res_features=high_res_features,)
 
-	dbgprint(predict, LogLevel.INFO, f'5. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
-	dbgprint(predict, LogLevel.INFO, f'6. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
-	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
-	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
+	dbgprint(predict, LogLevel.INFO, f'6. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
+	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
+	dbgprint(predict, LogLevel.INFO, f'8. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
+	dbgprint(predict, LogLevel.INFO, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
 	# Upscale the masks to the original image resolution
 	pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
-	dbgprint(predict, LogLevel.TRACE, f'8. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
+	dbgprint(predict, LogLevel.TRACE, f'10. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
 
 	return pred_masks, pred_scores, low_res_masks
 
