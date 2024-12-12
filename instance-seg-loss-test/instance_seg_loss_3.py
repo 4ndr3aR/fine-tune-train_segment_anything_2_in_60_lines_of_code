@@ -181,7 +181,7 @@ def extract_binary_masks_256(mask_batch, color_palette, colorids_dict, debug_bin
 		#binary_masks = create_segmentation_maps(mask, color_palette)
 		start		= datetime.datetime.now()
 		# v1 is faster, 0.003 vs 0.005 over 34 images (each image) - 0.12s vs 0.20s for all the 34 images
-		binary_masks	= create_binary_segmentation_maps_v2(mask, color_palette)
+		binary_masks	= create_binary_segmentation_maps_v1(mask, color_palette)
 		end		= datetime.datetime.now()
 		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256()[{idx}/{len(mask_batch)}] - Time to create binary masks: {end-start}')
 		binary_masks_list.append(binary_masks)

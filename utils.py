@@ -233,6 +233,9 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 	- The image with the points drawn on it.
 	"""
 
+	dbgprint(dataloader, LogLevel.TRACE, f"Image type	: {type(image)}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Image shape	: {image.shape}")
+	dbgprint(dataloader, LogLevel.TRACE, f"Image dtype	: {image.dtype}")
 	dbgprint(dataloader, LogLevel.TRACE, f"Points type	: {type(points)}")
 	if isinstance(points, np.ndarray) or isinstance(points, torch.Tensor):
 		dbgprint(dataloader, LogLevel.TRACE, f"Points shape	: {points.shape}")
@@ -247,6 +250,6 @@ def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-
 		else:
 			x, y = item
 		dbgprint(dataloader, LogLevel.TRACE, f"Drawing circle at	: {x} {y}")
-		cv2.circle(image, (x, y), radius, color, thickness)
+		image = cv2.circle(image.copy(), (int(x), int(y)), radius, color, thickness)
 	return image
 

@@ -86,6 +86,8 @@ import pdb
 print(f'Loading cv2...')
 import cv2
 
+import math
+
 print(f'Loading torch Dataset and DataLoader...')
 from torch.utils.data import Dataset, DataLoader
 print(f'Loading sklearn...')
@@ -266,6 +268,77 @@ def loss_example_usage():
 
 
 
+def create_grid(W, H, n_points):
+    """
+    Creates a grid of points inside an image with shape (W, H) 
+    according to the n_points variable.
+
+    Args:
+    W (int): Width of the image.
+    H (int): Height of the image.
+    n_points (int): Number of points to sample from the grid.
+
+    Returns:
+    torch.Tensor: A tensor of shape (n_points, 2) containing the x and y coordinates of the grid points.
+    """
+    dbgprint(dataloader, LogLevel.INFO, f'create_grid() - W: {W}, H: {H}, n_points: {n_points}')
+    # Calculate the number of points in each dimension
+    n_x = int(torch.sqrt(torch.tensor(n_points * W / H)))
+    n_y = int(torch.sqrt(torch.tensor(n_points * H / W)))
+
+    # Adjust n_x and n_y to get as close to n_points as possible
+    while n_x * n_y < n_points:
+        if n_x < n_y:
+            n_x += 1
+        else:
+            n_y += 1
+
+    # Create a grid of points
+    x = torch.linspace(0, W - 1, n_x)
+    y = torch.linspace(0, H - 1, n_y)
+    grid_x, grid_y = torch.meshgrid(x, y)
+
+    # Flatten the grid and select the first n_points points
+    grid_points = torch.stack((grid_x.flatten(), grid_y.flatten()), dim=1)
+    dbgprint(dataloader, LogLevel.INFO, f'grid_points.shape: {grid_points.shape} - grid_points: {grid_points}')
+    return grid_points[:n_points]
+
+def create_asymmetric_point_grid(width: int, height: int, n_points_x: int, n_points_y: int) -> torch.Tensor:
+    """
+    Creates a grid of points inside an image with different number of points in x and y directions.
+    
+    Args:
+        width (int): Width of the image
+        height (int): Height of the image
+        n_points_x (int): Number of points along x-axis
+        n_points_y (int): Number of points along y-axis
+    
+    Returns:
+        torch.Tensor: Grid points with shape (N, 2) where N = n_points_x * n_points_y
+    """
+    dbgprint(dataloader, LogLevel.INFO, f'create_asymmetric_point_grid() - width: {width}, height: {height}, n_points_x: {n_points_x}, n_points_y: {n_points_y}')
+    # Create linearly spaced points for x and y coordinates
+    x = torch.linspace(0, width - 1, n_points_x)
+    y = torch.linspace(0, height - 1, n_points_y)
+    
+    # Create meshgrid
+    grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')
+    
+    # Reshape to (N, 2) format
+    points = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+    dbgprint(dataloader, LogLevel.INFO, f'points.shape: {points.shape} - points: {points}')
+    
+    return points
+
+
+'''
+# Example usage:
+W, H, n_points = 256, 256, 1000
+grid_points = create_grid(W, H, n_points)
+print(grid_points.shape)  # Output: torch.Size([1000, 2])
+'''
+
+
 
 def unpack_resolution(resolution_str):
     """Unpacks the resolution string into width and height."""
@@ -366,17 +439,18 @@ def collate_fn(data):
 
 class SpreadDataset(Dataset):
 	_data = None					# The whole dataset (filenames, imgs, seg. masks, instance seg. masks)
-	def __init__(self, data_dir, width=1024, height=1024, split="train",
+	def __init__(self, data_dir, width=1024, height=1024, num_samples=1024, split="train",
 			color_palette_path='./instance-seg-loss-test/color-palette.xlsx',
 			train_ratio=0.7, val_ratio=0.2, test_ratio=0.1,
 			preload=False):
 
-		dbgprint(dataloader, LogLevel.INFO, f'SpreadDataset() - {data_dir} - {width} - {height} - {split} - {train_ratio} - {val_ratio} - {test_ratio}')
+		dbgprint(dataloader, LogLevel.INFO, f'SpreadDataset() - {data_dir} - {width} - {height} - {num_samples} - {split} - {train_ratio} - {val_ratio} - {test_ratio}')
 
 		self.data_dir				= data_dir
 		self.split				= split
 		self.width				= width
 		self.height				= height
+		self.num_samples			= num_samples
 		self.preload				= preload
 		self.color_palette_path			= color_palette_path
 		self.color_palette			= None
@@ -505,23 +579,19 @@ class SpreadDataset(Dataset):
 		#cv2.waitKey()
 
 
-		num_samples = 30
+		#num_samples = 30
 		#num_samples = 1
-
-		'''
-		rgb_mask	= to_rgb(ann_map)
-
-		classes, freqs	= get_unique_classes  (rgb_mask, is_grayscale_img(rgb_mask))
-		rgb_mask	= replace_class_colors(rgb_mask, classes, freqs=freqs)
-		'''
 
 		if self.debug_instance_segmentation_masks:
 			### TODO: to debug using always the same image
 			imask	= cv2.imread('/tmp/ramdrive/spread-mini/downtown-west/instance_segmentation/Tree10_1721274064.png', cv2.IMREAD_UNCHANGED)
 
-		#input_points	= get_points(imask, num_samples)
-		#input_points	= get_points_color(imask, num_samples, bg_color=[255, 255, 255])
-		input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
+
+
+		n_x = int(torch.sqrt(torch.tensor(self.num_samples * self.width  / self.height)))
+		n_y = int(torch.sqrt(torch.tensor(self.num_samples * self.height / self.width)))
+		#input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
+		input_points	= create_asymmetric_point_grid(small_mask.shape[1], small_mask.shape[0], n_x, n_y)
 		if isinstance(input_points, np.ndarray) or isinstance(input_points, torch.Tensor):
 			dbgprint(dataloader, LogLevel.TRACE, f"Input points shape: {input_points.shape}")
 		if isinstance(input_points, list):
@@ -529,11 +599,11 @@ class SpreadDataset(Dataset):
 		dbgprint(dataloader, LogLevel.TRACE, f"Input points: {input_points}")
 
 		if self.debug_input_points:
-			imask	= draw_points_on_image(imask, input_points)
+			smask_p	= draw_points_on_image(small_mask, input_points)
 			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
-			outfn	= Path('/tmp/spread-out-tmp') / str(Path(ent["image_fn"]).name[:-4]+'points.jpg')
-			dbgprint(dataloader, LogLevel.WARN, f'Writing mask with points: {outfn}')
-			cv2.imwrite(outfn, imask)
+			outfn	= str(Path('/tmp/small-mask-with-points-{datetime.strftime(datetime.now(), "%Y%m%d-%H%M%S")}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.jpg')
+			dbgprint(dataloader, LogLevel.WARNING, f'Writing mask with points: {outfn}')
+			cv2.imwrite(outfn, smask_p)
 		#input_points	= np.ravel(input_points)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Image shape	  : {Img.shape}")
@@ -606,22 +676,24 @@ def set_breakpoint(tag, condition=True):
 
 
 
-def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
-	dbgprint(predict, LogLevel.TRACE, f'1. - {type(image)    = } - {type(mask)     = } - {type(input_point) = }')
-	dbgprint(predict, LogLevel.TRACE, f'2. - {type(image)    = } - {len(image)     = }')
-	dbgprint(predict, LogLevel.TRACE, f'3. - {type(image[0]) = } - {image[0].shape = } - {image[0].dtype = }')
-	dbgprint(predict, LogLevel.TRACE, f'4. - {type(mask[0])  = } - {mask[0].shape  = } - {mask[0].dtype = }')
+def sam2_predict(predictor, images, masks, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
+	dbgprint(predict, LogLevel.INFO, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_point) = }')
+	dbgprint(predict, LogLevel.INFO, f'2. - {len(images)     = } - {len(masks)      = }')
+	dbgprint(predict, LogLevel.INFO, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype   = }')
+	dbgprint(predict, LogLevel.INFO, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype    = }')
 
-	predictor.set_image_batch(image)				# apply SAM image encoder to the image
+	predictor.set_image_batch(images)				# apply SAM image encoder to the images
 
 
 		#prd_msk  = torch.sigmoid(pred_mask[:, 0]).detach().cpu().numpy()
 
+	'''
 	sz = [256, 256] # always for SAM masks
 	resize_tfm   = Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
 	#resized_mask = resize_tfm(torch.stack(mask, dim=0).to(torch.uint8)).permute(0, 2, 3, 1)
 	resized_mask = resize_tfm(torch.stack([torch.from_numpy(item).float() for item in mask], dim=0).permute(0, 3, 1, 2)).to(torch.float16).to(device=predictor.device)
 	dbgprint(predict, LogLevel.INFO, f'5. - {type(resized_mask[0])  = } - {resized_mask[0].shape  = } - {resized_mask[0].dtype = } - {resized_mask[0].device = }')
+	'''
 
 	mask_input, unnorm_coords, labels, unnorm_box	= predictor._prep_prompts(input_point, input_label, box=box, mask_logits=mask_logits, normalize_coords=normalize_coords)
 	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
@@ -633,7 +705,7 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 	# mask decoder
 
 	high_res_features				= [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-	low_res_masks, pred_scores, _, _		= predictor.model.sam_mask_decoder(
+	low_res_masks, pred_scores, _, _		= predictor.model.sam_mask_decoder(				# output: masks, iou_pred, sam_tokens_out, object_score_logits
 								image_embeddings=predictor._features["image_embed"],
 								image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
 								sparse_prompt_embeddings=sparse_embeddings,
@@ -648,9 +720,10 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 	dbgprint(predict, LogLevel.INFO, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
 	# Upscale the masks to the original image resolution
 	pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
+	low_res_masks_as_gt_masks			= predictor._transforms.postprocess_masks(low_res_masks, (masks[0].shape[0], masks[0].shape[1]))
 	dbgprint(predict, LogLevel.TRACE, f'10. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
 
-	return pred_masks, pred_scores, low_res_masks
+	return pred_masks, pred_scores, low_res_masks_as_gt_masks
 
 def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weight=0.05):
 	# Segmentaion Loss caclulation
@@ -712,7 +785,7 @@ def validate(predictor, val_loader):
 
 			input_points = torch.tensor(np.array(input_points)).cuda().float()
 			if 'labpic' in dataset_name:
-				input_label  = torch.ones(input_points.shape[0], 1).cuda().float()		# create just one label!
+				input_label  = torch.ones(input_points.shape[0], 1).cuda().float()				# create just one label!
 			elif 'spread' in dataset_name:
 				input_label  = torch.ones(input_points.shape[0], input_points.shape[1]).cuda().float()		# create as many labels as input points
 			else:
@@ -726,7 +799,7 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-			pred_masks, pred_scores, low_res_masks	= sam2_predict(predictor, images, masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
+			pred_masks, pred_scores, low_res_masks	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			loss, seg_loss, score_loss, iou	= None, None, None, None
 			total_oldseg_loss, ce, dice, focal, iou	= None, None, None, None, None
@@ -900,7 +973,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	dbgprint(train, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 	dbgprint(train, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-	pred_masks, pred_scores, low_res_masks 	= sam2_predict(predictor, images, masks, input_points, input_label, box=None,
+	pred_masks, pred_scores, low_res_masks 	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None,
 							mask_logits=None, normalize_coords=True)
 
 	loss, seg_loss, score_loss, iou	 = None, None, None, None
