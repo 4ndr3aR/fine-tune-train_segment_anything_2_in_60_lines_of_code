@@ -52,6 +52,156 @@ def create_gray_color_palette(color_palette):
             gray_color_palette[color_id] = np.mean(color)
     return gray_color_palette
 
+# llama-3.3-70b-instruct
+def create_binary_segmentation_maps_v2(image, color_palette):
+    """
+    Create binary segmentation maps for each color in the color palette.
+
+    Args:
+    - image (torch.Tensor): The input image in BGR format.
+    - color_palette (list): A list of dictionaries, where each dictionary contains a single key-value pair.
+                            The key is the index of the color, and the value is a tuple representing the RGB color.
+
+    Returns:
+    - binary_segmentation_maps (torch.Tensor): A tensor of shape [256, H, W] containing the binary segmentation maps for each color.
+    """
+    # Convert the color palette to a tensor
+    color_palette_tensor = torch.tensor([list(color.values())[0] for color in color_palette]).to(image.device)
+
+    # Convert the input image from BGR to RGB
+    image_rgb = image.permute(2, 0, 1)  # [3, H, W]
+    image_rgb = image_rgb.flip(0)  # [3, H, W]
+
+    # Create a tensor to store the binary segmentation maps
+    binary_segmentation_maps = torch.zeros((256, image.shape[0], image.shape[1]), device=image.device, dtype=torch.uint8)
+
+    # Iterate over each color in the color palette
+    for i, color in enumerate(color_palette_tensor):
+        # Create a binary segmentation map for the current color
+        binary_map = (image_rgb == color[:, None, None]).all(dim=0).to(torch.uint8)
+
+        # Store the binary segmentation map in the tensor
+        binary_segmentation_maps[i] = binary_map
+
+    return binary_segmentation_maps
+
+# qwen2.5-72b-instruct
+def create_binary_segmentation_maps_v1(image, color_palette):
+    # Convert the color palette from RGB to BGR
+    bgr_palette = [torch.tensor(list(color.values())[0][::-1]) for color in color_palette]
+    
+    # Stack the BGR palette into a single tensor of shape (256, 3)
+    bgr_palette_tensor = torch.stack(bgr_palette).to(image.device)
+    
+    # Get the unique colors in the image
+    #unique_colors, inverse_indices = torch.unique(image.view(-1, 3), dim=0, return_inverse=True)
+    unique_colors, inverse_indices = torch.unique(image.reshape(-1, 3), dim=0, return_inverse=True)
+    
+    # Create a mapping from unique colors to their indices in the palette
+    color_to_index = {tuple(color.tolist()): i for i, color in enumerate(bgr_palette_tensor)}
+    
+    # Initialize the segmentation maps tensor of shape (256, H, W)
+    H, W, _ = image.shape
+    segmentation_maps = torch.zeros((256, H, W), dtype=torch.bool, device=image.device)
+    
+    # Flatten the image to (H*W, 3) for easier comparison
+    #flat_image = image.view(-1, 3)
+    flat_image = image.reshape(-1, 3)
+    
+    # Iterate over the unique colors and update the segmentation maps
+    for i, color in enumerate(unique_colors):
+        if tuple(color.tolist()) in color_to_index:
+            index = color_to_index[tuple(color.tolist())]
+            mask = (inverse_indices == i).view(H, W)
+            segmentation_maps[index] = mask
+    
+    return segmentation_maps
+
+def extract_binary_masks_256_single_mask(mask, color_palette):
+	# mask.shape == [480, 270, 3]
+	print(f'{color_palette = }')
+	print(f'{color_palette[0] = }')
+	# Convert the color palette to a PyTorch tensor
+	#palette_tensor = torch.tensor(list(color_palette.values()), dtype=torch.uint8)
+	#color_palette_smth = [{list(color_palette[idx].values())[0]: list(color_palette[idx].values())[1:]} for idx,itm in enumerate(color_palette)]
+	#dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {color_palette_smth = }')
+	#color_palette_smth2 = [reversed(list(color_palette[idx].values())[0]) for idx,itm in enumerate(color_palette)]
+	color_palette_list = [list(list(color_palette[idx].values())[0])[::-1] for idx,itm in enumerate(color_palette)]
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {color_palette_list = }')
+	palette_tensor = torch.tensor(color_palette_list, dtype=torch.uint8, device=mask.device)
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {palette_tensor.shape = } - {palette_tensor = }')
+	
+	# Expand the palette tensor to match the shape of the input segmentation map
+	# The shape will be [256, 3] (for the colors) x [H, W, 1] (for each pixel)
+	unsqueezed_palette = palette_tensor.unsqueeze(1).unsqueeze(2)
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {unsqueezed_palette.shape = } - {unsqueezed_palette = }')
+	expanded_palette = unsqueezed_palette.expand(-1, *mask.shape[0:])
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {expanded_palette.shape = } - {expanded_palette = }')
+	
+	# Create binary masks for each color in the palette
+	# The shape of binary_masks will be [256, H, W]
+	binary_masks = (mask.unsqueeze(0) == expanded_palette).all(dim=1).to(dtype=torch.uint8)
+	
+	return binary_masks
+
+def extract_binary_masks_256(mask_batch, color_palette, colorids_dict, debug_binary_masks=False):
+	"""
+	Extracts binary masks from RGB instance segmentation masks using the color id file and color palette.
+	"""
+
+	function_start = datetime.datetime.now()
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(colorids_dict) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(color_palette) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {len(colorids_dict) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {len(color_palette) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {len(mask_batch) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(mask_batch[0]) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {mask_batch[0].shape = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(mask_batch[1]) = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {mask_batch[1].shape = }')
+
+	permuted_batch = mask_batch.permute(0, 3, 2, 1)
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(permuted_batch) = } - {permuted_batch.shape = }')
+
+	binary_masks_list = []
+
+	for idx, mask in enumerate(permuted_batch):
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {type(mask) = }')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256() - {mask.shape = }')
+
+		if debug_binary_masks:
+			cv2.imwrite(f'/tmp/mask-{datetime.datetime.now()}.png', mask.detach().cpu().numpy().astype(np.uint8))
+
+		reshaped = mask.reshape(-1, 3)
+		#print(f'{reshaped.shape = }')
+		unique_colors = torch.unique(reshaped, dim=0)
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256()[{idx}/{len(mask_batch)}] - Examining image with unique colors: {unique_colors.shape} - {unique_colors}')
+
+		#binary_masks = extract_binary_masks_256_single_mask(mask, color_palette)
+		#binary_masks = create_segmentation_maps(mask, color_palette)
+		start		= datetime.datetime.now()
+		# v1 is faster, 0.003 vs 0.005 over 34 images (each image) - 0.12s vs 0.20s for all the 34 images
+		binary_masks	= create_binary_segmentation_maps_v2(mask, color_palette)
+		end		= datetime.datetime.now()
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256()[{idx}/{len(mask_batch)}] - Time to create binary masks: {end-start}')
+		binary_masks_list.append(binary_masks)
+
+		if debug_binary_masks:
+			for jdx, binmask in enumerate(binary_masks):
+				nonzeroes = binmask[binmask != 0]
+				dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256()[{idx}/{len(mask_batch)}][{jdx}/{len(binary_masks)}] - Binary mask shape: {binmask.shape}')
+				if len(nonzeroes) > 0:
+					dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256()[{idx}/{len(mask_batch)}][{jdx}/{len(binary_masks)}] - Binary mask nonzeroes: {nonzeroes.shape}')
+					cv2.imwrite(f'/tmp/binary-segmentation-mask-{idx}-of-{len(mask_batch)}-{jdx}-of-{len(binary_masks)}-{datetime.datetime.now()}.png', binmask.permute(1, 0).detach().cpu().numpy().astype(np.uint8)*255)
+
+	batch_of_binary_masks = torch.stack(binary_masks_list)
+	function_end = datetime.datetime.now()
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.DEBUG, f'extract_binary_masks_256() - Returning a batch with shape: {batch_of_binary_masks.shape} - elapsed: {function_end - function_start}')
+
+	return batch_of_binary_masks
+	
+
+
 def extract_binary_masks(mask, color_palette, colorids_dict, min_white_pixels = 1000):
 	"""
 	Extracts binary masks from RGB instance segmentation masks using the color id file and color palette.
@@ -406,6 +556,54 @@ print(binary_batch.shape)  # Output: torch.Size([2, 50, 270, 480])
 
 
 
+def instance_segmentation_loss_256(gt_mask, pred_mask,
+					colorids_dict, color_palette,
+					debug_show_images = False, device='cuda'):
+	"""
+	Computes the instance segmentation loss using cross-entropy loss.
+	"""
+	start = datetime.datetime.now()
+
+	#small_masks_gpu = torch.stack(small_masks).to(device)
+	#gt_mask = torch.as_tensor(np.array(gt_mask)).permute(0, 3, 1, 2).to(device)
+	gt_mask   = torch.as_tensor(np.array(gt_mask)).to(device).permute(0, 3, 1, 2)
+	#pred_mask = pred_mask #* 255
+	# InterpolationMode.NEAREST_EXACT is the correct one: https://github.com/pytorch/pytorch/issues/62237
+	sz = [gt_mask.shape[1], gt_mask.shape[2]]
+	print(f'{sz = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'instance_segmentation_loss_256() - {type(gt_mask)   = } - {gt_mask.shape   = } - {gt_mask.dtype   = } - {gt_mask.device   = }')
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'instance_segmentation_loss_256() - {type(pred_mask) = } - {pred_mask.shape = } - {pred_mask.dtype = } - {pred_mask.device = }')
+
+	bin_gt_mask_256 = extract_binary_masks_256(gt_mask, color_palette, colorids_dict)
+	sys.exit(0)
+
+
+	preds_tfm = Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
+	pred_mask = preds_tfm(pred_mask.to(torch.uint8)).permute(0, 2, 3, 1)
+	for idx in range(pred_mask.shape[0]):
+		print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {pred_mask[idx].shape = }')
+		cv2.imwrite(f'/tmp/pred_mask-resized-permuted-{idx}-{datetime.datetime.now()}.png', pred_mask[idx].cpu().numpy())
+	#pred_mask_binarized = images_to_binary_masks(pred_mask, max_colors=50)
+	#pred_mask_binarized = color_to_binary_batch(pred_mask, max_colors=50)
+	#pred_mask_binarized = rgb_to_binary(pred_mask, max_colors=50)
+	pred_mask_binarized = convert_to_binary_batch(pred_mask, max_colors=50)
+	print(f'{pred_mask_binarized.shape = }')
+	for idx in range(pred_mask_binarized.shape[0]):
+		for jdx in range(pred_mask_binarized[idx].shape[0]):
+			print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {jdx} {pred_mask_binarized[idx][jdx].shape = }')
+			cv2.imwrite(f'/tmp/pred_mask-binarized-{idx}-{jdx}-{datetime.datetime.now()}.png', pred_mask_binarized[idx][jdx].cpu().numpy())
+
+	gtbm_lst = []
+	gtl_lst  = []
+	gtwp_lst = []
+
+	# gt_mask.shape = torch.Size([2, 270, 480, 3]) - gt_mask.dtype = torch.uint8
+	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = } - {gt_mask.device = }')
+	for idx, gtm in enumerate(gt_mask):
+		gtbm, gtl, gtwp = extract_binary_masks(gtm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
+		gtbm_lst.append(gtbm)
+		gtl_lst.append(gtl)
+		gtwp_lst.append(gtwp)
 
 
 

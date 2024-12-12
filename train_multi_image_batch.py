@@ -97,7 +97,7 @@ from dbgprint import *
 
 #from instance_seg_loss import convert_mask_to_binary_masks, calculate_iou, InstanceSegmentationLoss
 #from instance_seg_loss import InstanceSegmentationLoss
-from instance_seg_loss import instance_segmentation_loss, read_color_palette, read_colorid_file, instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks
+from instance_seg_loss import instance_segmentation_loss, read_color_palette, read_colorid_file, instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks, instance_segmentation_loss_256
 
 print(f'Loading utils functions...')
 from utils import set_model_paths, create_model, cv2_waitkey_wrapper, get_image_mode, is_grayscale, is_grayscale_img, to_rgb, replace_color, get_unique_classes, replace_class_colors, get_points, extract_points_outside_region, draw_points_on_image, replace_bg_color
@@ -624,11 +624,11 @@ def sam2_predict(predictor, image, mask, input_point, input_label, box=None, mas
 	dbgprint(predict, LogLevel.INFO, f'5. - {type(resized_mask[0])  = } - {resized_mask[0].shape  = } - {resized_mask[0].dtype = } - {resized_mask[0].device = }')
 
 	mask_input, unnorm_coords, labels, unnorm_box	= predictor._prep_prompts(input_point, input_label, box=box, mask_logits=mask_logits, normalize_coords=normalize_coords)
-	#sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
+	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if mask_logits is None else mask_input)
 
 	# https://github.com/facebookresearch/segment-anything/issues/242
 	# https://github.com/facebookresearch/segment-anything/issues/169
-	sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if resized_mask is None else resized_mask)
+	#sparse_embeddings, dense_embeddings		= predictor.model.sam_prompt_encoder(points=(unnorm_coords, labels), boxes=None if box is None else unnorm_box, masks=None if resized_mask is None else resized_mask)
 
 	# mask decoder
 
@@ -931,7 +931,8 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 			loss += instance_segmentation_loss(gt_mask, pred_mask, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = True)
 		'''
 		
-		loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
+		#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
+		loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_256(small_masks, low_res_masks, color_ids, color_palette, debug_show_images = False, device=predictor.device)
 
 
 		'''
