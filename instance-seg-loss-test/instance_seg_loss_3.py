@@ -558,7 +558,7 @@ print(binary_batch.shape)  # Output: torch.Size([2, 50, 270, 480])
 
 def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 					colorids_dict, color_palette,
-					calculate_binary_loss = False,
+					calculate_binary_losses = False,
 					debug_show_images = False, device='cuda'):
 	"""
 	Computes the instance segmentation loss using cross-entropy loss.
@@ -589,7 +589,7 @@ def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][1][50:100, 50:100] = }')
 	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][2][50:100, 50:100] = }')
 
-	if calculate_binary_loss:
+	if calculate_binary_losses:
 		'''
 		pp_masks = torch.sigmoid(pred_masks) * 255	# Turn logit map to probability map, then multiply by 255
 		pp_masks = pp_masks.to(torch.uint8)

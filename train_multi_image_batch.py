@@ -1016,7 +1016,7 @@ def training_loop(predictor, optimizer, scaler,
 		'''
 		
 		#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
-		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, calculate_binary_loss=False, debug_show_images = False, device=predictor.device)
+		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
 		loss = ce_loss + seg_loss + score_loss
 
 
