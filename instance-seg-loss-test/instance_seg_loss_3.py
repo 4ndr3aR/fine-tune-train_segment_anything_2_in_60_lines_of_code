@@ -127,16 +127,16 @@ def extract_binary_masks_256_single_mask(mask, color_palette):
 	#dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {color_palette_smth = }')
 	#color_palette_smth2 = [reversed(list(color_palette[idx].values())[0]) for idx,itm in enumerate(color_palette)]
 	color_palette_list = [list(list(color_palette[idx].values())[0])[::-1] for idx,itm in enumerate(color_palette)]
-	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {color_palette_list = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256_single_mask() - {color_palette_list = }')
 	palette_tensor = torch.tensor(color_palette_list, dtype=torch.uint8, device=mask.device)
-	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {palette_tensor.shape = } - {palette_tensor = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256_single_mask() - {palette_tensor.shape = } - {palette_tensor = }')
 	
 	# Expand the palette tensor to match the shape of the input segmentation map
 	# The shape will be [256, 3] (for the colors) x [H, W, 1] (for each pixel)
 	unsqueezed_palette = palette_tensor.unsqueeze(1).unsqueeze(2)
-	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {unsqueezed_palette.shape = } - {unsqueezed_palette = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256_single_mask() - {unsqueezed_palette.shape = } - {unsqueezed_palette = }')
 	expanded_palette = unsqueezed_palette.expand(-1, *mask.shape[0:])
-	dbgprint(Subsystem.MASKCOLORS, LogLevel.INFO, f'extract_binary_masks_256_single_mask() - {expanded_palette.shape = } - {expanded_palette = }')
+	dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'extract_binary_masks_256_single_mask() - {expanded_palette.shape = } - {expanded_palette = }')
 	
 	# Create binary masks for each color in the palette
 	# The shape of binary_masks will be [256, H, W]
@@ -558,12 +558,13 @@ print(binary_batch.shape)  # Output: torch.Size([2, 50, 270, 480])
 
 def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 					colorids_dict, color_palette,
+					calculate_binary_loss = False,
 					debug_show_images = False, device='cuda'):
 	"""
 	Computes the instance segmentation loss using cross-entropy loss.
 	"""
 	start = datetime.datetime.now()
-	DBG_TUPLE = (Subsystem.LOSS, LogLevel.INFO)
+	DBG_TUPLE = (Subsystem.LOSS, LogLevel.TRACE)
 
 	#small_masks_gpu = torch.stack(small_masks).to(device)
 	#gt_masks = torch.as_tensor(np.array(gt_masks)).permute(0, 3, 1, 2).to(device)
@@ -588,7 +589,8 @@ def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][1][50:100, 50:100] = }')
 	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][2][50:100, 50:100] = }')
 
-	if False:
+	if calculate_binary_loss:
+		'''
 		pp_masks = torch.sigmoid(pred_masks) * 255	# Turn logit map to probability map, then multiply by 255
 		pp_masks = pp_masks.to(torch.uint8)
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(pp_masks) = } - {pp_masks.shape = } - {pp_masks.dtype = } - {pp_masks.device = }')
@@ -596,12 +598,27 @@ def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0].shape = } - {pp_masks[0].dtype = } - {pp_masks[0].device = }')
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0].shape = } - {pp_masks[0][0].dtype = } - {pp_masks[0][0].device = }')
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0][50:100, 50:100] = }')
-	
+		'''
+		bin_start = datetime.datetime.now()
+
 		bin_gt_masks_256 = extract_binary_masks_256(gt_masks, color_palette, colorids_dict)
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(bin_gt_masks_256) = } - {bin_gt_masks_256.shape = } - {bin_gt_masks_256.dtype = } - {bin_gt_masks_256.device = }')
 		bin_pp_masks_256 = extract_binary_masks_256(pp_masks, color_palette, colorids_dict)
 		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(bin_pp_masks_256) = } - {bin_pp_masks_256.shape = } - {bin_pp_masks_256.dtype = } - {bin_pp_masks_256.device = }')
-		old_seg_loss = (-gt_masks * torch.log(pp_masks + 0.00001) - (1 - gt_masks) * torch.log((1 - pp_masks) + 0.00001)).mean() # cross entropy loss
+		#old_seg_loss = (-gt_masks * torch.log(pp_masks + 0.00001) - (1 - gt_masks) * torch.log((1 - pp_masks) + 0.00001)).mean() # cross entropy loss
+
+		bin_gt_masks_256_f = bin_gt_masks_256.float()
+		bin_pp_masks_256_f = bin_pp_masks_256.float()
+		
+		# apply log to convert to logits
+		bin_gt_masks_256_logits = torch.log(bin_gt_masks_256_f / (1 - bin_gt_masks_256_f))
+		bin_pp_masks_256_logits = torch.log(bin_pp_masks_256_f / (1 - bin_pp_masks_256_f))
+		
+		# compute binary cross entropy
+		ce_loss_256 = torch.nn.functional.binary_cross_entropy_with_logits(bin_pp_masks_256_logits, bin_gt_masks_256_logits, reduction='mean')
+
+		bin_end = datetime.datetime.now()
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {ce_loss_256 = } - elapsed time: {bin_end - bin_start}')
 
 	gt_masks_f = gt_masks.float() / 255.0
 	old_seg_loss = (-gt_masks_f * torch.log(pp_masks + 0.00001) - (1 - gt_masks_f) * torch.log((1 - pp_masks) + 0.00001)).mean() # cross entropy loss

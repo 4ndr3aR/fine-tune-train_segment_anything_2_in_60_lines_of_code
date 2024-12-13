@@ -316,7 +316,7 @@ def create_asymmetric_point_grid(width: int, height: int, n_points_x: int, n_poi
     Returns:
         torch.Tensor: Grid points with shape (N, 2) where N = n_points_x * n_points_y
     """
-    dbgprint(dataloader, LogLevel.INFO, f'create_asymmetric_point_grid() - width: {width}, height: {height}, n_points_x: {n_points_x}, n_points_y: {n_points_y}')
+    dbgprint(dataloader, LogLevel.TRACE, f'create_asymmetric_point_grid() - width: {width}, height: {height}, n_points_x: {n_points_x}, n_points_y: {n_points_y}')
     # Create linearly spaced points for x and y coordinates
     x = torch.linspace(0, width - 1, n_points_x)
     y = torch.linspace(0, height - 1, n_points_y)
@@ -326,7 +326,7 @@ def create_asymmetric_point_grid(width: int, height: int, n_points_x: int, n_poi
     
     # Reshape to (N, 2) format
     points = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
-    dbgprint(dataloader, LogLevel.INFO, f'points.shape: {points.shape} - points: {points}')
+    dbgprint(dataloader, LogLevel.TRACE, f'points.shape: {points.shape} - points: {points}')
     
     return points
 
@@ -462,7 +462,7 @@ class SpreadDataset(Dataset):
 
 		self.data          = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
 		self.color_palette = read_color_palette(color_palette_path, invert_to_bgr=True)
-		dbgprint(dataloader, LogLevel.INFO, f"Loaded color palette: {self.color_palette}")
+		dbgprint(dataloader, LogLevel.TRACE, f"Loaded color palette: {self.color_palette}")
 
 	def _load_data(self, data_dir):
 		# Collect all data entries
@@ -500,7 +500,7 @@ class SpreadDataset(Dataset):
 					imask_fn   = os.path.join(instance_dir,     name)
 					smask_fn   = os.path.join(segmentation_dir, name)
 					colorid_fn = os.path.join(instance_dir,     name.replace(".png", ".txt"))
-					dbgprint(dataloader, LogLevel.INFO, f'{im_fn} - {imask_fn} - {smask_fn} - {colorid_fn} - {self.preload = }')
+					dbgprint(dataloader, LogLevel.TRACE, f'{im_fn} - {imask_fn} - {smask_fn} - {colorid_fn} - {self.preload = }')
 					data.append({
 						"image_fn"	 : im_fn,
 						"instance_fn"	 : imask_fn,
@@ -677,10 +677,10 @@ def set_breakpoint(tag, condition=True):
 
 
 def sam2_predict(predictor, images, masks, input_point, input_label, box=None, mask_logits=None, normalize_coords=True):
-	dbgprint(predict, LogLevel.INFO, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_point) = }')
-	dbgprint(predict, LogLevel.INFO, f'2. - {len(images)     = } - {len(masks)      = }')
-	dbgprint(predict, LogLevel.INFO, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype   = }')
-	dbgprint(predict, LogLevel.INFO, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype    = }')
+	dbgprint(predict, LogLevel.TRACE, f'1. - {type(images)    = } - {type(masks)     = } - {type(input_point) = }')
+	dbgprint(predict, LogLevel.TRACE, f'2. - {len(images)     = } - {len(masks)      = }')
+	dbgprint(predict, LogLevel.TRACE, f'3. - {type(images[0]) = } - {images[0].shape = } - {images[0].dtype   = }')
+	dbgprint(predict, LogLevel.TRACE, f'4. - {type(masks[0])  = } - {masks[0].shape  = } - {masks[0].dtype    = }')
 
 	predictor.set_image_batch(images)				# apply SAM image encoder to the images
 
@@ -715,11 +715,11 @@ def sam2_predict(predictor, images, masks, input_point, input_label, box=None, m
 								repeat_image=False,
 								high_res_features=high_res_features,)
 
-	dbgprint(predict, LogLevel.INFO, f'6. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
-	dbgprint(predict, LogLevel.INFO, f'7. - {type(pred_scores)       = } - {pred_scores.shape        = } - {pred_scores.dtype      = } - {pred_scores.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
-	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
-	dbgprint(predict, LogLevel.INFO, f'8. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
-	dbgprint(predict, LogLevel.INFO, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }') if len(low_res_masks) > 1 else None
+	dbgprint(predict, LogLevel.TRACE, f'6. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
+	dbgprint(predict, LogLevel.TRACE, f'7. - {type(pred_scores)       = } - {pred_scores.shape        = } - {pred_scores.dtype      = } - {pred_scores.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
+	dbgprint(predict, LogLevel.TRACE, f'7. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
+	dbgprint(predict, LogLevel.TRACE, f'8. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
+	dbgprint(predict, LogLevel.TRACE, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }') if len(low_res_masks) > 1 else None
 	# Upscale the masks to the original image resolution
 	#pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
 	low_res_masks_as_gt_masks			= predictor._transforms.postprocess_masks(low_res_masks, (masks[0].shape[0], masks[0].shape[1]))
@@ -810,7 +810,7 @@ def validate(predictor, val_loader):
 			if 'labpic' in dataset_name:
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
-				ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, val_loader.dataset.color_palette, debug_show_images = False, device=predictor.device)
+				ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, val_loader.dataset.color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
 				#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 				loss = ce_loss + seg_loss + score_loss
 				'''
@@ -935,8 +935,12 @@ def validate(predictor, val_loader):
 	return itr, avg_val_loss, avg_val_iou, extra_loss_str, *extra_loss_values
 
 
-def training_loop(predictor, optimizer, scaler, images, masks, input_points, small_masks, color_ids, color_palette, epoch, itr, best_loss, best_iou, mean_iou):
-	dbgprint(train, LogLevel.INFO, f'Reading batch no. {itr}: {len(images)} - {len(masks)} - {len(small_masks)} - {len(input_points)}')
+def training_loop(predictor, optimizer, scaler,
+			images, masks, input_points, small_masks,
+			color_ids, color_palette,
+			epoch, itr, best_loss, best_iou, mean_iou,
+			debug_pred_masks=False):
+	dbgprint(train, LogLevel.TRACE, f'Reading batch no. {itr}: {len(images)} - {len(masks)} - {len(small_masks)} - {len(input_points)}')
 	
 	dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
 	dbgprint(train, LogLevel.TRACE, f'{len(images)  = } {len(masks)  = } {len(input_points) = }')
@@ -993,11 +997,11 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 		#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 		seg_loss, score_loss, iou = None, None, None
 
-
-		for idx in range(len(pred_masks)):
-			dbgprint(train, LogLevel.INFO, f'Saving pred_masks[{idx}] = {pred_masks[idx].shape = } to /tmp')
-			np_lrm = pred_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy() * 255
-			cv2.imwrite(f'/tmp/pred_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
+		if debug_pred_masks:
+			for idx in range(len(pred_masks)):
+				dbgprint(train, LogLevel.INFO, f'Saving pred_masks[{idx}] = {pred_masks[idx].shape = } to /tmp')
+				np_lrm = pred_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy() * 255
+				cv2.imwrite(f'/tmp/pred_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
 
 
 		#gt_mask = masks
@@ -1012,7 +1016,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 		'''
 		
 		#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
-		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, debug_show_images = False, device=predictor.device)
+		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, calculate_binary_loss=False, debug_show_images = False, device=predictor.device)
 		loss = ce_loss + seg_loss + score_loss
 
 
@@ -1069,7 +1073,7 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 			wandb.log({"Imgs": wdb_imgs})
 			wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
 			wandb.log({"GT": wdb_masks})
-			wdb_pred_masks = wandb.Image(low_res_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+			wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
 			wandb.log({"Preds": wdb_pred_masks})
 		else:
 			raise Exception(f"Unknown dataset: {dataset_name}")
@@ -1212,10 +1216,12 @@ if __name__ == "__main__":
 		val_loader	= DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, collate_fn=collate_fn, pin_memory=True)
 	elif "spread" in dataset_name.lower():
 		dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-		#data_dir	= Path("/mnt/raid1/dataset/spread/spread")
+		data_dir	= Path("/mnt/raid1/dataset/spread/spread")
 		#data_dir	= Path("/tmp/ramdrive/spread-mini")
 		#data_dir	= Path("/tmp/ramdrive/spread-femto")
-		data_dir	= Path("/mnt/raid1/dataset/spread/spread-femto-few-instances")
+		#data_dir	= Path("/mnt/raid1/dataset/spread/spread-mini")
+		#data_dir	= Path("/mnt/raid1/dataset/spread/spread-femto")
+		#data_dir	= Path("/mnt/raid1/dataset/spread/spread-femto-few-instances")
 		
 		train_dataset	= SpreadDataset(data_dir,   split="train", preload=dataset_preload)
 		train_loader	= DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, collate_fn=collate_fn, pin_memory=True)
