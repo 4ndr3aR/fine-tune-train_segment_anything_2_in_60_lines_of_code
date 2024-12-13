@@ -545,7 +545,7 @@ class SpreadDataset(Dataset):
 		else:
 			dbgprint(dataloader, LogLevel.TRACE, f'Reading image: {ent["image_fn"]}')
 			img = cv2.imread(ent["image_fn"])[..., ::-1]
-		#print(f"------------------- Image shape: {img.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Image shape: {img.shape}")
 		if img is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading image: {ent["image"]}')
 		#ann_map = cv2.imread(ent["annotation"], cv2.IMREAD_UNCHANGED)			# Read as is
@@ -559,11 +559,11 @@ class SpreadDataset(Dataset):
 		color_ids = ent["colorids"] if ent["colorids"] is not None else read_colorid_file(ent["colorid_fn"])		# this returns a colorid_dict
 		if color_ids is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading colorid file: {ent["colorid_fn"]}')
-		print(f'------------------- Color ids: {color_ids}')
+		dbgprint(dataloader, LogLevel.TRACE, f'------------------- Color ids: {color_ids}')
 
 		# Resize images and masks to the same resolution
 		img	= cv2.resize(img,	(self.width, self.height))
-		#print(f"------------------- Resized image shape: {img.shape}")
+		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Resized image shape: {img.shape}")
 		imask	= cv2.resize(small_mask,(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 		#smask	= cv2.resize(smask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
 
@@ -601,7 +601,7 @@ class SpreadDataset(Dataset):
 		if self.debug_input_points:
 			smask_p	= draw_points_on_image(small_mask, input_points)
 			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
-			outfn	= str(Path('/tmp/small-mask-with-points-{datetime.strftime(datetime.now(), "%Y%m%d-%H%M%S")}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.jpg')
+			outfn	= str(Path(f'/tmp/small-mask-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
 			dbgprint(dataloader, LogLevel.WARNING, f'Writing mask with points: {outfn}')
 			cv2.imwrite(outfn, smask_p)
 		#input_points	= np.ravel(input_points)
@@ -705,7 +705,8 @@ def sam2_predict(predictor, images, masks, input_point, input_label, box=None, m
 	# mask decoder
 
 	high_res_features				= [feat_level[-1].unsqueeze(0) for feat_level in predictor._features["high_res_feats"]]
-	low_res_masks, pred_scores, _, _		= predictor.model.sam_mask_decoder(				# output: masks, iou_pred, sam_tokens_out, object_score_logits
+	# output: masks, iou_pred, sam_tokens_out, object_score_logits
+	low_res_masks, pred_scores, _, _		= predictor.model.sam_mask_decoder(
 								image_embeddings=predictor._features["image_embed"],
 								image_pe=predictor.model.sam_prompt_encoder.get_dense_pe(),
 								sparse_prompt_embeddings=sparse_embeddings,
@@ -715,15 +716,17 @@ def sam2_predict(predictor, images, masks, input_point, input_label, box=None, m
 								high_res_features=high_res_features,)
 
 	dbgprint(predict, LogLevel.INFO, f'6. - {len(predictor._orig_hw) = } - {type(predictor._orig_hw) = } - {predictor._orig_hw     = }')
+	dbgprint(predict, LogLevel.INFO, f'7. - {type(pred_scores)       = } - {pred_scores.shape        = } - {pred_scores.dtype      = } - {pred_scores.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
 	dbgprint(predict, LogLevel.INFO, f'7. - {type(low_res_masks)     = } - {low_res_masks.shape      = } - {low_res_masks.dtype    = } - {low_res_masks.device = }')			# torch.Size([2, 3, 256, 256]) on GPU
 	dbgprint(predict, LogLevel.INFO, f'8. - {type(low_res_masks[0])  = } - {low_res_masks[0].shape   = } - {low_res_masks[0].dtype = } - {low_res_masks[0].device = }')
-	dbgprint(predict, LogLevel.INFO, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }')
+	dbgprint(predict, LogLevel.INFO, f'9. - {type(low_res_masks[1])  = } - {low_res_masks[1].shape   = } - {low_res_masks[1].dtype = } - {low_res_masks[1].device = }') if len(low_res_masks) > 1 else None
 	# Upscale the masks to the original image resolution
-	pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
+	#pred_masks					= predictor._transforms.postprocess_masks(low_res_masks, predictor._orig_hw[-1])
 	low_res_masks_as_gt_masks			= predictor._transforms.postprocess_masks(low_res_masks, (masks[0].shape[0], masks[0].shape[1]))
-	dbgprint(predict, LogLevel.TRACE, f'10. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
+	#dbgprint(predict, LogLevel.TRACE, f'10. - {type(pred_masks[0])     = } - {pred_masks[0].shape      = } - {pred_masks[0].dtype    = }')
+	dbgprint(predict, LogLevel.TRACE, f'10. - {type(low_res_masks_as_gt_masks[0])     = } - {low_res_masks_as_gt_masks[0].shape      = } - {low_res_masks_as_gt_masks[0].dtype    = }')
 
-	return pred_masks, pred_scores, low_res_masks_as_gt_masks
+	return low_res_masks_as_gt_masks, pred_scores #, pred_masks 
 
 def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weight=0.05):
 	# Segmentaion Loss caclulation
@@ -799,14 +802,17 @@ def validate(predictor, val_loader):
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 			dbgprint(Subsystem.VALIDATE, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-			pred_masks, pred_scores, low_res_masks	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
+			#low_res_masks, pred_scores, pred_masks 	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
+			pred_masks, pred_scores = sam2_predict(predictor, images, small_masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 			#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			loss, seg_loss, score_loss, iou	= None, None, None, None
 			total_oldseg_loss, ce, dice, focal, iou	= None, None, None, None, None
 			if 'labpic' in dataset_name:
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
-				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+				ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, val_loader.dataset.color_palette, debug_show_images = False, device=predictor.device)
+				#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+				loss = ce_loss + seg_loss + score_loss
 				'''
 				loss_fn  = InstanceSegmentationLoss()
 				new_loss = loss_fn(pred_masks, masks)
@@ -877,7 +883,7 @@ def validate(predictor, val_loader):
 					wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
 					wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
 					wandb.log({"Imgs": wdb_imgs})
-					wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+					wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
 					wandb.log({"GT": wdb_masks})
 					wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
 					wandb.log({"Preds": wdb_pred_masks})
@@ -973,8 +979,9 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 	dbgprint(train, LogLevel.TRACE, f'4a. - {type(input_points)  = } - {input_points.shape  = } - {input_points.dtype = }')
 	dbgprint(train, LogLevel.TRACE, f'4b. - {type(input_label)  = } - {input_label.shape  = } - {input_label.dtype = }')
 
-	pred_masks, pred_scores, low_res_masks 	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None,
-							mask_logits=None, normalize_coords=True)
+	#pred_masks, pred_scores, low_res_masks 	= sam2_predict(predictor, images, small_masks, input_points, input_label, box=None,
+	#						mask_logits=None, normalize_coords=True)
+	pred_masks, pred_scores = sam2_predict(predictor, images, small_masks, input_points, input_label, box=None, mask_logits=None, normalize_coords=True)
 
 	loss, seg_loss, score_loss, iou	 = None, None, None, None
 	total_loss, ce, dice, focal, iou = None, None, None, None, None
@@ -987,10 +994,10 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 		seg_loss, score_loss, iou = None, None, None
 
 
-		for idx in range(len(low_res_masks)):
-			dbgprint(train, LogLevel.INFO, f'Saving low_res_masks[{idx}] = {low_res_masks[idx].shape = } to /tmp')
-			np_lrm = low_res_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy() * 255
-			cv2.imwrite(f'/tmp/low_res_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
+		for idx in range(len(pred_masks)):
+			dbgprint(train, LogLevel.INFO, f'Saving pred_masks[{idx}] = {pred_masks[idx].shape = } to /tmp')
+			np_lrm = pred_masks[idx].clone().detach().permute(1, 2, 0).cpu().numpy() * 255
+			cv2.imwrite(f'/tmp/pred_masks-{idx}-{datetime.now().strftime("%Y%m%d-%H%M%S")}.png', np_lrm)
 
 
 		#gt_mask = masks
@@ -1005,7 +1012,8 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 		'''
 		
 		#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
-		loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_256(small_masks, low_res_masks, color_ids, color_palette, debug_show_images = False, device=predictor.device)
+		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, debug_show_images = False, device=predictor.device)
+		loss = ce_loss + seg_loss + score_loss
 
 
 		'''
@@ -1059,9 +1067,9 @@ def training_loop(predictor, optimizer, scaler, images, masks, input_points, sma
 			wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
 			wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
 			wandb.log({"Imgs": wdb_imgs})
-			wdb_masks = wandb.Image(masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+			wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
 			wandb.log({"GT": wdb_masks})
-			wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+			wdb_pred_masks = wandb.Image(low_res_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
 			wandb.log({"Preds": wdb_pred_masks})
 		else:
 			raise Exception(f"Unknown dataset: {dataset_name}")

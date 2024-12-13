@@ -556,57 +556,73 @@ print(binary_batch.shape)  # Output: torch.Size([2, 50, 270, 480])
 
 
 
-def instance_segmentation_loss_256(gt_mask, pred_mask,
+def instance_segmentation_loss_256(gt_masks, pred_masks, pred_scores,
 					colorids_dict, color_palette,
 					debug_show_images = False, device='cuda'):
 	"""
 	Computes the instance segmentation loss using cross-entropy loss.
 	"""
 	start = datetime.datetime.now()
+	DBG_TUPLE = (Subsystem.LOSS, LogLevel.INFO)
 
 	#small_masks_gpu = torch.stack(small_masks).to(device)
-	#gt_mask = torch.as_tensor(np.array(gt_mask)).permute(0, 3, 1, 2).to(device)
-	gt_mask   = torch.as_tensor(np.array(gt_mask)).to(device).permute(0, 3, 1, 2)
-	#pred_mask = pred_mask #* 255
+	#gt_masks = torch.as_tensor(np.array(gt_masks)).permute(0, 3, 1, 2).to(device)
+	gt_masks   = torch.as_tensor(np.array(gt_masks)).to(device).permute(0, 3, 1, 2)
+	#pred_masks = pred_masks #* 255
 	# InterpolationMode.NEAREST_EXACT is the correct one: https://github.com/pytorch/pytorch/issues/62237
-	sz = [gt_mask.shape[1], gt_mask.shape[2]]
-	print(f'{sz = }')
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'instance_segmentation_loss_256() - {type(gt_mask)   = } - {gt_mask.shape   = } - {gt_mask.dtype   = } - {gt_mask.device   = }')
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'instance_segmentation_loss_256() - {type(pred_mask) = } - {pred_mask.shape = } - {pred_mask.dtype = } - {pred_mask.device = }')
+	#sz = [gt_masks.shape[1], gt_masks.shape[2]]
+	#print(f'{sz = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(gt_masks)   = } - {gt_masks.shape   = } - {gt_masks.dtype   = } - {gt_masks.device   = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {gt_masks[0][0][50:100, 50:100] = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(pred_masks) = } - {pred_masks.shape = } - {pred_masks.dtype = } - {pred_masks.device = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pred_masks[0].shape = } - {pred_masks[0].dtype = } - {pred_masks[0].device = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pred_masks[0][0].shape = } - {pred_masks[0][0].dtype = } - {pred_masks[0][0].device = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pred_masks[0][0][50:100, 50:100] = }')
 
-	bin_gt_mask_256 = extract_binary_masks_256(gt_mask, color_palette, colorids_dict)
-	sys.exit(0)
+	pp_masks = torch.sigmoid(pred_masks)			# Turn logit map to probability map
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(pp_masks) = } - {pp_masks.shape = } - {pp_masks.dtype = } - {pp_masks.device = }')
 
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0].shape = } - {pp_masks[0].dtype = } - {pp_masks[0].device = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0].shape = } - {pp_masks[0][0].dtype = } - {pp_masks[0][0].device = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0][50:100, 50:100] = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][1][50:100, 50:100] = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][2][50:100, 50:100] = }')
 
-	preds_tfm = Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
-	pred_mask = preds_tfm(pred_mask.to(torch.uint8)).permute(0, 2, 3, 1)
-	for idx in range(pred_mask.shape[0]):
-		print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {pred_mask[idx].shape = }')
-		cv2.imwrite(f'/tmp/pred_mask-resized-permuted-{idx}-{datetime.datetime.now()}.png', pred_mask[idx].cpu().numpy())
-	#pred_mask_binarized = images_to_binary_masks(pred_mask, max_colors=50)
-	#pred_mask_binarized = color_to_binary_batch(pred_mask, max_colors=50)
-	#pred_mask_binarized = rgb_to_binary(pred_mask, max_colors=50)
-	pred_mask_binarized = convert_to_binary_batch(pred_mask, max_colors=50)
-	print(f'{pred_mask_binarized.shape = }')
-	for idx in range(pred_mask_binarized.shape[0]):
-		for jdx in range(pred_mask_binarized[idx].shape[0]):
-			print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ {idx} {jdx} {pred_mask_binarized[idx][jdx].shape = }')
-			cv2.imwrite(f'/tmp/pred_mask-binarized-{idx}-{jdx}-{datetime.datetime.now()}.png', pred_mask_binarized[idx][jdx].cpu().numpy())
+	if False:
+		pp_masks = torch.sigmoid(pred_masks) * 255	# Turn logit map to probability map, then multiply by 255
+		pp_masks = pp_masks.to(torch.uint8)
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(pp_masks) = } - {pp_masks.shape = } - {pp_masks.dtype = } - {pp_masks.device = }')
+	
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0].shape = } - {pp_masks[0].dtype = } - {pp_masks[0].device = }')
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0].shape = } - {pp_masks[0][0].dtype = } - {pp_masks[0][0].device = }')
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pp_masks[0][0][50:100, 50:100] = }')
+	
+		bin_gt_masks_256 = extract_binary_masks_256(gt_masks, color_palette, colorids_dict)
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(bin_gt_masks_256) = } - {bin_gt_masks_256.shape = } - {bin_gt_masks_256.dtype = } - {bin_gt_masks_256.device = }')
+		bin_pp_masks_256 = extract_binary_masks_256(pp_masks, color_palette, colorids_dict)
+		dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {type(bin_pp_masks_256) = } - {bin_pp_masks_256.shape = } - {bin_pp_masks_256.dtype = } - {bin_pp_masks_256.device = }')
+		old_seg_loss = (-gt_masks * torch.log(pp_masks + 0.00001) - (1 - gt_masks) * torch.log((1 - pp_masks) + 0.00001)).mean() # cross entropy loss
 
-	gtbm_lst = []
-	gtl_lst  = []
-	gtwp_lst = []
+	gt_masks_f = gt_masks.float() / 255.0
+	old_seg_loss = (-gt_masks_f * torch.log(pp_masks + 0.00001) - (1 - gt_masks_f) * torch.log((1 - pp_masks) + 0.00001)).mean() # cross entropy loss
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {old_seg_loss = }')
+	#ce_loss = torch.nn.functional.binary_cross_entropy(bin_gt_masks_256, bin_pp_masks_256, reduction='mean')
+	#ce_loss = bce_loss(bin_gt_masks_256, bin_pp_masks_256)
+	#bce_loss = torch.nn.BCELoss()
+	ce_loss = torch.nn.functional.binary_cross_entropy_with_logits(pp_masks, gt_masks_f, reduction='mean')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {ce_loss = }')
 
-	# gt_mask.shape = torch.Size([2, 270, 480, 3]) - gt_mask.dtype = torch.uint8
-	dbgprint(Subsystem.LOSS, LogLevel.INFO, f'{type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = } - {gt_mask.device = }')
-	for idx, gtm in enumerate(gt_mask):
-		gtbm, gtl, gtwp = extract_binary_masks(gtm, color_palette, colorids_dict[idx], min_white_pixels = min_white_pixels)
-		gtbm_lst.append(gtbm)
-		gtl_lst.append(gtl)
-		gtwp_lst.append(gtwp)
+	# Score loss calculation (intersection over union) IOU
+	inter = (gt_masks_f * (pp_masks > 0.5)).sum(0).sum(1).sum(1)
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {inter.shape = } - {inter.dtype = } - {inter.device = } - {inter = }')
+	iou = inter / (gt_masks_f.sum(0).sum(1).sum(1) + (pp_masks > 0.5).sum(0).sum(1).sum(1) - inter)
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {iou.shape = } - {iou.dtype = } - {iou.device = } - {iou = }')
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {pred_scores.shape = } - {pred_scores.dtype = } - {pred_scores.device = } - {pred_scores = }')
+	score_loss = torch.abs(pred_scores - iou).mean()
+	dbgprint(*DBG_TUPLE, f'instance_segmentation_loss_256() - {score_loss = }')
+	#loss=seg_loss+score_loss*0.05  # mix losses
 
-
-
+	return ce_loss, old_seg_loss, score_loss, iou
 
 def instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(gt_mask, pred_mask,
 									colorids_dict, color_palette,

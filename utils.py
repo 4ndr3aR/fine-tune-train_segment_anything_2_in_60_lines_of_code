@@ -218,7 +218,7 @@ def extract_points_outside_region(mask, num_points, bg_color=[0, 0, 0]):
 	#return sampled_coords
 
 
-def draw_points_on_image(image, points, color=(0, 0, 255), radius=5, thickness=-1):
+def draw_points_on_image(image, points, color=(0, 0, 255), radius=1, thickness=-1):
 	"""
 	Draws a list of (x, y) points onto an image.
 
