@@ -454,14 +454,16 @@ class SpreadDataset(Dataset):
 		self.preload				= preload
 		self.color_palette_path			= color_palette_path
 		self.color_palette			= None
+		self.color_palette_as_list		= None
 		self.debug_instance_segmentation_masks	= False
 		self.debug_input_points			= False
 
 		if SpreadDataset._data is None:
 			SpreadDataset._data = self._load_data(data_dir)
 
-		self.data          = self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
-		self.color_palette = read_color_palette(color_palette_path, invert_to_bgr=True)
+		self.data				= self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
+		self.color_palette			= read_color_palette(color_palette_path, invert_to_bgr=False)
+		self.color_palette_as_list		= [list(d.values())[0] for d in self.color_palette]
 		dbgprint(dataloader, LogLevel.TRACE, f"Loaded color palette: {self.color_palette}")
 
 	def _load_data(self, data_dir):
@@ -587,23 +589,70 @@ class SpreadDataset(Dataset):
 			imask	= cv2.imread('/tmp/ramdrive/spread-mini/downtown-west/instance_segmentation/Tree10_1721274064.png', cv2.IMREAD_UNCHANGED)
 
 
+		if False:			# keep every binary mask (including bg colors). Outcome: doesn't work (with crossentropy loss at least)
+			n_x = int(torch.sqrt(torch.tensor(self.num_samples * self.width  / self.height)))
+			n_y = int(torch.sqrt(torch.tensor(self.num_samples * self.height / self.width)))
+			#input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
+			input_points	= create_asymmetric_point_grid(small_mask.shape[1], small_mask.shape[0], n_x, n_y)
+			if isinstance(input_points, np.ndarray) or isinstance(input_points, torch.Tensor):
+				dbgprint(dataloader, LogLevel.TRACE, f"Input points shape: {input_points.shape}")
+			if isinstance(input_points, list):
+				dbgprint(dataloader, LogLevel.TRACE, f"Input points len  : {len(input_points)}")
+			dbgprint(dataloader, LogLevel.TRACE, f"Input points: {input_points}")
+	
+			if self.debug_input_points:
+				smask_p	= draw_points_on_image(small_mask, input_points)
+				#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
+				outfn	= str(Path(f'/tmp/small-mask-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
+				dbgprint(dataloader, LogLevel.WARNING, f'Writing mask with points: {outfn}')
+				cv2.imwrite(outfn, smask_p)
+		else:
+			#inds = np.unique(small_mask)[1:]
+			reshaped = small_mask.reshape(-1, 3)
+			colors = np.unique(reshaped, axis=0)
+			dbgprint(dataloader, LogLevel.TRACE, f'Unique colors: {colors}')
+			if len(colors) > 0:
+				color_idx = np.random.choice(range(len(colors)))
+				color = colors[color_idx]
+				dbgprint(dataloader, LogLevel.TRACE, f'Random color idx: {color_idx} - color: {color}')
+				mask = (small_mask == color).astype(np.uint8)		# only our selected objects gets binarized in the mask
+				dbgprint(dataloader, LogLevel.TRACE, f'Color palette: {self.color_palette_as_list}')
+				if list(color) in self.color_palette_as_list:
+					# In color_palette there are also walls, roads and similar stuff, I'm appalled by this dataset...
+					# really can't find a way to say if it's a tree or not just looking at the color, this dataset is pure hell
+					dbgprint(dataloader, LogLevel.TRACE, f'Random color idx: {color_idx} - color: {list(color)} - is in color palette')
+					if mask.sum() <= 15000:				# trees should be "small"
+						mask[mask==1] = 3			# if it's a tree, it gets +1
+					else:
+						mask[mask==1] = 2			# larger than 15k px == wall, road, sky, etc. (480x270 images)
+				else:
+					mask[mask==1] = 1				# this is "true" backgrund (e.g. sky)
+					dbgprint(dataloader, LogLevel.TRACE, f'Random color idx: {color_idx} - color: {list(color)} - not in color palette')
+				coords = np.argwhere(mask > 0)
+				yx = coords[np.random.randint(len(coords))]
+				point = [[yx[1], yx[0]]]
+			else:
+				dbgprint(dataloader, LogLevel.ERROR, f'Only background in small_mask: {small_mask}')
+				return None, None, None
 
-		n_x = int(torch.sqrt(torch.tensor(self.num_samples * self.width  / self.height)))
-		n_y = int(torch.sqrt(torch.tensor(self.num_samples * self.height / self.width)))
-		#input_points	= extract_points_outside_region(imask, num_samples, bg_color=[255, 255, 255])
-		input_points	= create_asymmetric_point_grid(small_mask.shape[1], small_mask.shape[0], n_x, n_y)
-		if isinstance(input_points, np.ndarray) or isinstance(input_points, torch.Tensor):
-			dbgprint(dataloader, LogLevel.TRACE, f"Input points shape: {input_points.shape}")
-		if isinstance(input_points, list):
-			dbgprint(dataloader, LogLevel.TRACE, f"Input points len  : {len(input_points)}")
-		dbgprint(dataloader, LogLevel.TRACE, f"Input points: {input_points}")
+			if self.debug_input_points:
+				smask_p	= draw_points_on_image(small_mask, point)
+				outfn	= str(Path(f'/tmp/small-mask-all-instances-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
+				dbgprint(dataloader, LogLevel.WARNING, f'Writing colored mask with 1 point: {outfn} - point: {point}')
+				cv2.imwrite(outfn, smask_p[..., ::-1])
 
-		if self.debug_input_points:
-			smask_p	= draw_points_on_image(small_mask, input_points)
-			#cv2.imwrite(Path('/tmp/spread-out-tmp') / str(Path(ent["image"]).name[:-4]+'points.jpg'), imask)
-			outfn	= str(Path(f'/tmp/small-mask-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
-			dbgprint(dataloader, LogLevel.WARNING, f'Writing mask with points: {outfn}')
-			cv2.imwrite(outfn, smask_p)
+				smask_p	= draw_points_on_image(mask, point)
+				outfn	= str(Path(f'/tmp/small-mask-only-one-instance-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
+				dbgprint(dataloader, LogLevel.WARNING, f'Writing binary mask with 1 point: {outfn} - point: {point} - color: {color}')
+				cv2.imwrite(outfn, smask_p[..., ::-1])
+			dbgprint(dataloader, LogLevel.TRACE, f'{type(img)} {type(mask)} {type(point)}')
+			dbgprint(dataloader, LogLevel.TRACE, f"Input points len: {len(point)}")
+			dbgprint(dataloader, LogLevel.TRACE, f"Input points: {point}")
+
+			# we tried to do all the instances at once... we failed. Let's try with the original (dumb) method
+			return img, imask, point, mask, color_ids
+
+
 		#input_points	= np.ravel(input_points)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Image shape	  : {Img.shape}")
@@ -772,6 +821,26 @@ def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weig
 
 	return loss, seg_loss, score_loss, iou
 
+def good_old_loss(mask, prd_masks, prd_scores):
+	# Segmentaion Loss caclulation
+
+	# [B, H, W, 3] so we always pick just one layer, they're always (0,0,0), (1,1,1) etc.
+	gt_mask  = torch.Tensor(np.array(mask)[:, :, :, 0]).to(torch.float32).cuda()	
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'good_old_loss() - {type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = }')
+	prd_mask = torch.sigmoid(prd_masks[:, 0])# Turn logit map to probability map
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'good_old_loss() - {type(prd_mask) = } - {prd_mask.shape = } - {prd_mask.dtype = }')
+	seg_loss = (-gt_mask * torch.log(prd_mask + 0.00001) - (1 - gt_mask) * torch.log((1 - prd_mask) + 0.00001)).mean() # cross entropy loss
+	
+	# Score loss calculation (intersection over union) IOU
+	
+	inter = (gt_mask * (prd_mask > 0.5)).sum(1).sum(1)
+	iou = inter / (gt_mask.sum(1).sum(1) + (prd_mask > 0.5).sum(1).sum(1) - inter)
+	score_loss = torch.abs(prd_scores[:, 0] - iou).mean()
+	loss = seg_loss + score_loss*0.05  # mix losses
+	return loss, seg_loss, score_loss, iou
+
+
+
 
 # Validation function
 def validate(predictor, val_loader):
@@ -810,9 +879,12 @@ def validate(predictor, val_loader):
 			if 'labpic' in dataset_name:
 				loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
 			elif 'spread' in dataset_name:
-				ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, val_loader.dataset.color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
-				#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
-				loss = ce_loss + seg_loss + score_loss
+				if False:
+					ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, val_loader.dataset.color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
+					#loss, seg_loss, score_loss, iou	= calc_loss_and_metrics(pred_masks, masks, pred_scores, score_loss_weight=0.05)
+					loss = ce_loss + seg_loss + score_loss
+				else:
+					loss, seg_loss, score_loss, iou = good_old_loss(small_masks, pred_masks, pred_scores)
 				'''
 				loss_fn  = InstanceSegmentationLoss()
 				new_loss = loss_fn(pred_masks, masks)
@@ -881,12 +953,15 @@ def validate(predictor, val_loader):
 				elif 'spread' in dataset_name:
 					#wandb.log({"ce": ce, "dice": dice, "focal": focal})
 					wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
-					wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
-					wandb.log({"Imgs": wdb_imgs})
-					wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
-					wandb.log({"GT": wdb_masks})
-					wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
-					wandb.log({"Preds": wdb_pred_masks})
+					if False:
+						wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"Imgs": wdb_imgs})
+						wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"GT": wdb_masks})
+						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+						wandb.log({"Preds": wdb_pred_masks})
+					if itr == 0:
+						wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
 				else:
 					raise Exception(f"Unknown dataset: {dataset_name}")
 				if itr == 0:
@@ -1014,10 +1089,13 @@ def training_loop(predictor, optimizer, scaler,
 		for idx, (gt_mask, pred_mask) in enumerate(zip(masks, pred_masks)):
 			loss += instance_segmentation_loss(gt_mask, pred_mask, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = True)
 		'''
-		
-		#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
-		ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
-		loss = ce_loss + seg_loss + score_loss
+
+		if False:
+			#loss, elapsed_time, seg_loss, feat_loss = instance_segmentation_loss_sorted_by_num_pixels_in_binary_masks(small_masks, low_res_masks, color_ids, color_palette, min_white_pixels = 1000, debug_show_images = False, device=predictor.device)
+			ce_loss, seg_loss, score_loss, iou = instance_segmentation_loss_256(small_masks, pred_masks, pred_scores, color_ids, color_palette, calculate_binary_losses=False, debug_show_images = False, device=predictor.device)
+			loss = ce_loss + seg_loss + score_loss
+		else:
+			loss, seg_loss, score_loss, iou = good_old_loss(small_masks, pred_masks, pred_scores)
 
 
 		'''
@@ -1069,12 +1147,15 @@ def training_loop(predictor, optimizer, scaler,
 		elif 'spread' in dataset_name:
 			#wandb.log({"ce": ce, "dice": dice, "focal": focal})
 			wandb.log({"seg_loss": seg_loss, "score_loss": score_loss})
-			wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
-			wandb.log({"Imgs": wdb_imgs})
-			wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
-			wandb.log({"GT": wdb_masks})
-			wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
-			wandb.log({"Preds": wdb_pred_masks})
+			if False:
+				wdb_imgs = wandb.Image(images[0], caption=f"Img-epoch-{epoch}-itr-{itr}-1st-batch")
+				wandb.log({"Imgs": wdb_imgs})
+				wdb_masks = wandb.Image(small_masks[0], caption=f"GT-epoch-{epoch}-itr-{itr}-1st-batch")
+				wandb.log({"GT": wdb_masks})
+				wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
+				wandb.log({"Preds": wdb_pred_masks})
+			if itr == 0:
+				wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
 		else:
 			raise Exception(f"Unknown dataset: {dataset_name}")
 		if itr == 0:
@@ -1130,17 +1211,26 @@ def training_loop(predictor, optimizer, scaler,
 
 
 
-def wandb_log_masked_images(images, masks, pred_masks, pred_scores):
+def wandb_log_masked_images(images, masks, pred_masks, pred_scores,
+				class_labels = {1: 'liquid', 2: 'solid', 3: 'foam', 4: 'suspension', 5: 'powder', 6: 'gel', 7: 'granular', 8: 'vapor'}):
 	#class_labels = {1: "class1", 2: "class2"}
-	class_labels = {1: 'liquid', 2: 'solid', 3: 'foam', 4: 'suspension', 5: 'powder', 6: 'gel', 7: 'granular', 8: 'vapor'}
+	#class_labels = {1: 'liquid', 2: 'solid', 3: 'foam', 4: 'suspension', 5: 'powder', 6: 'gel', 7: 'granular', 8: 'vapor'}
+	sz		= [images[0].shape[0], images[0].shape[1]]
+	masks_tfm	= Resize(size=sz, interpolation=InterpolationMode.NEAREST_EXACT, antialias=False)
+	masks		= masks_tfm(masks.to(torch.uint8))#.permute(0, 2, 3, 1)
+	pred_masks	= masks_tfm(pred_masks.to(torch.float16))#.permute(0, 2, 3, 1)
+
 	for img, msk, pred_mask, pred_score in zip(images, masks, pred_masks, pred_scores):
-		gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).detach().cpu().numpy()
+
+
+		#gt_msk   = torch.tensor(np.array(msk).astype(np.float32)).detach().cpu().numpy()
+		gt_msk   = msk.detach().cpu().numpy()
 		#prd_msk  = torch.sigmoid(pred_mask[:, 0]).detach().cpu().numpy()
 		prd_msk  = torch.where(pred_mask >= .5, pred_mask, torch.zeros_like(pred_mask)).softmax(dim=0).argmax(dim=0).detach().cpu().numpy()
-		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'7. - {gt_msk.shape = } - {prd_msk.shape = } - {pred_score.shape = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'8. - {gt_msk = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'9. - {prd_msk = }')
-		dbgprint(Subsystem.TRAIN, LogLevel.INFO, f'0. - {pred_score = }')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'7. - {gt_msk.shape = } - {prd_msk.shape = } - {pred_score.shape = }')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'8. - {gt_msk = }')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'9. - {prd_msk = }')
+		dbgprint(Subsystem.MASKCOLORS, LogLevel.TRACE, f'0. - {pred_score = }')
 		
 		masked_img = wandb.Image(img, masks={
 							"prediction":	{"mask_data": prd_msk, "class_labels": class_labels},
