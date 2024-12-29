@@ -21,9 +21,9 @@ def iou_loss(pred, target):
 	Intersection over Union (IoU) Loss
 	"""
 	pred = torch.softmax(pred, dim=1)
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE,  f'iou_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - target.shape	: {target.shape}')		# [bs, 3, 1024, 1024]
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - target		: {target}')			# the RGB instance seg. mask
-	dbgprint(Subsystem.LOSS, LogLevel.TRACE,  f'iou_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
+	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - pred.shape	: {pred.shape}')		# [bs, 3, 1024, 1024]
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'iou_loss() - pred		: {pred}')
 
 	'''
@@ -87,6 +87,7 @@ print(f'Loading cv2...')
 import cv2
 
 import math
+import random
 
 print(f'Loading torch Dataset and DataLoader...')
 from torch.utils.data import Dataset, DataLoader
@@ -456,6 +457,7 @@ class SpreadDataset(Dataset):
 		self.color_palette			= None
 		self.color_palette_as_list		= None
 		self.debug_instance_segmentation_masks	= False
+		self.debug_semantic_segmentation_masks	= False
 		self.debug_input_points			= False
 
 		if SpreadDataset._data is None:
@@ -489,7 +491,7 @@ class SpreadDataset(Dataset):
 
 			segmentation_dir = os.path.join(data_dir, class_dir, "semantic_segmentation")
 			dbgprint(dataloader, LogLevel.INFO, f'Semantic segmentation directory: {segmentation_dir}')
-			if False and (not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir)):
+			if not os.path.isdir(segmentation_dir) or not os.path.exists(segmentation_dir):
 				dbgprint(dataloader, LogLevel.WARNING, f'Semantic segmentation directory not found or not accessible: {segmentation_dir}')
 				continue
 
@@ -510,7 +512,7 @@ class SpreadDataset(Dataset):
 						"colorid_fn"	 : colorid_fn,
 						"image"		 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
 						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1] if self.preload else None, # RGB plz
-						"segmentation"	 : None,	# TODO
+						"segmentation"	 : cv2.imread(smask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,            # Grayscale
 						"colorids"	 : read_colorid_file(colorid_fn),
 					})
 		print(' done!', flush=True)
@@ -556,6 +558,15 @@ class SpreadDataset(Dataset):
 		small_mask = ent["instance"] if ent["instance"] is not None else cv2.imread(ent["instance_fn"], cv2.IMREAD_UNCHANGED)[..., ::-1]
 		if small_mask is None:
 			dbgprint(dataloader, LogLevel.ERROR, f'Error reading instance segmentation mask: {ent["instance"]}')
+		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Instance segmentation mask shape: {small_mask.shape}")
+
+		seg_mask = ent["segmentation"] if ent["segmentation"] is not None else cv2.imread(ent["segmentation_fn"], cv2.IMREAD_UNCHANGED)
+		#cv2.imshow("Segmentation orig", seg_mask * 255)
+		if seg_mask is None:
+			dbgprint(dataloader, LogLevel.ERROR, f'Error reading segmentation mask: {ent["segmentation"]}')
+		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Segmentation mask shape: {seg_mask.shape}")
+
+
 		#imask	= replace_white_background_with_black(imask)
 		#smask	= cv2.imread(ent["segmentation"],	cv2.IMREAD_GRAYSCALE)		# Read grayscale
 		color_ids = ent["colorids"] if ent["colorids"] is not None else read_colorid_file(ent["colorid_fn"])		# this returns a colorid_dict
@@ -564,10 +575,46 @@ class SpreadDataset(Dataset):
 		dbgprint(dataloader, LogLevel.TRACE, f'------------------- Color ids: {color_ids}')
 
 		# Resize images and masks to the same resolution
-		img	= cv2.resize(img,	(self.width, self.height))
+		img      = cv2.resize(img,        (self.width, self.height))
 		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Resized image shape: {img.shape}")
-		imask	= cv2.resize(small_mask,(self.width, self.height), interpolation=cv2.INTER_NEAREST)
-		#smask	= cv2.resize(smask,	(self.width, self.height), interpolation=cv2.INTER_NEAREST)
+		imask    = cv2.resize(small_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
+		#smask   = cv2.resize(smask,      (self.width, self.height), interpolation=cv2.INTER_NEAREST)
+
+		# we want segmentation masks to be 480x270 to draw coords on trunks and then pick the color from small_masks (instance segmentation masks)
+		seg_mask = cv2.resize(seg_mask,   (small_mask.shape[1], small_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
+		#cv2.imshow("Segmentation resized", seg_mask * 255)
+
+		tree_mask, tree_center = select_random_tree_4(seg_mask, small_mask)
+		if tree_center is None:
+			dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask - {ent["image_fn"]}')
+			tree_center = [0, 0]
+
+		if self.debug_semantic_segmentation_masks:
+			tree_mask_1, tree_center_1 = get_random_tree_mask_1(seg_mask, small_mask)
+			#tree_mask_2, tree_center_2 = extract_random_tree_2 (seg_mask, small_mask)
+			tree_mask_2, tree_center_2 = select_random_tree_4(seg_mask, small_mask)
+
+			if tree_center_1 is None:
+				dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 1 - {ent["image_fn"]}')
+			if tree_center_2 is None:
+				dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 2 - {ent["image_fn"]}')
+	
+			#tree_mask_1 = draw_points_on_image(cv2.cvtColor(tree_mask_1, cv2.COLOR_GRAY2RGB), [list(tree_center_1)])
+			#tree_mask_2 = draw_points_on_image(cv2.cvtColor(tree_mask_2, cv2.COLOR_GRAY2RGB), [list(tree_center_2)])
+			img = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
+			#img = draw_points_on_image(img, [list(tree_center_1), list(tree_center_2)], color=(0, 0, 255), radius=5)
+			img = draw_points_on_image(img, [list(reversed(tree_center_1)), list(reversed(tree_center_2))], color=(0, 0, 255), radius=5)
+			# Display the extracted tree mask
+			cv2.imshow("image", img)
+			cv2.imshow("segmentation", seg_mask * 255)
+			cv2.imshow("instance", small_mask)
+			cv2.imshow("get_random_tree_mask_1()", tree_mask_1 * 255)
+			cv2.imshow("extract_random_tree_2()" , tree_mask_2 * 255)
+			cv2.waitKey(0)
+			cv2.destroyAllWindows()
+
+
+
 
 		#classes, freqs	= get_unique_classes  (imask, is_grayscale_img(imask))
 		#dbgprint(dataloader, LogLevel.TRACE, f'Classes: {classes} - {freqs}')
@@ -606,7 +653,7 @@ class SpreadDataset(Dataset):
 				outfn	= str(Path(f'/tmp/small-mask-with-points-{datetime.now():%Y-%m-%d-%H-%M-%S}')) + str(Path(ent["image_fn"]).name[:-4]+'-points.png')
 				dbgprint(dataloader, LogLevel.WARNING, f'Writing mask with points: {outfn}')
 				cv2.imwrite(outfn, smask_p)
-		else:
+		elif False:
 			#inds = np.unique(small_mask)[1:]
 			reshaped = small_mask.reshape(-1, 3)
 			colors = np.unique(reshaped, axis=0)
@@ -651,6 +698,8 @@ class SpreadDataset(Dataset):
 
 			# we tried to do all the instances at once... we failed. Let's try with the original (dumb) method
 			return img, imask, point, mask, color_ids
+		else:
+			return img, imask, [tree_center], tree_mask, color_ids
 
 
 		#input_points	= np.ravel(input_points)
@@ -821,11 +870,141 @@ def calc_loss_and_metrics(pred_masks, target_masks, pred_scores, score_loss_weig
 
 	return loss, seg_loss, score_loss, iou
 
+
+
+
+
+
+
+
+
+def get_random_tree_mask_1(seg_mask, small_mask):
+  """
+  Extracts a random tree instance mask from instance segmentation data,
+  based on the given trunk segmentation mask.
+
+  Args:
+    seg_mask: A binary mask (480x270) where 1 represents tree trunks.
+    small_mask: An RGB instance segmentation mask (480x270x3) with unique
+               colors for each instance.
+
+  Returns:
+    A tuple containing:
+      - tree_mask: A binary mask (480x270) representing a single tree
+        instance.
+      - random_coord: A tuple (row, col) representing the coordinates of the 
+        randomly selected point on a tree trunk.
+  """
+  dbgprint(dataloader, LogLevel.INFO, f'{type(seg_mask) = } - {seg_mask.shape = } - {seg_mask.dtype = }')
+  dbgprint(dataloader, LogLevel.INFO, f'{type(small_mask) = } - {small_mask.shape = } - {small_mask.dtype = }')
+  # 1. Find coordinates of all tree trunks
+  trunk_coords = np.argwhere(seg_mask == 1)
+  dbgprint(dataloader, LogLevel.INFO, f'trunk_coords = {trunk_coords}')
+
+  if len(trunk_coords) == 0:
+    return np.zeros_like(seg_mask, dtype=np.uint8), None,  # No trunks found, return empty mask and None coord
+    
+  # 2. Randomly select a single trunk coordinate
+  #random_coord = tuple(random.choice(trunk_coords))
+  random_trunk_coord = np.random.choice(len(trunk_coords), size=1)[0]
+  random_coord = trunk_coords[random_trunk_coord]
+  dbgprint(dataloader, LogLevel.INFO, f'random_coord = {random_coord}')
+
+  # 3. Get the RGB color at that coordinate from small_mask
+  selected_color = small_mask[random_coord[0], random_coord[1]]
+
+  # 4. Create a binary mask for the selected tree
+  tree_mask = np.all(small_mask == selected_color, axis=-1).astype(np.uint8)
+  
+  return tree_mask, random_coord #[random_coord[1], random_coord[0]]
+
+
+
+def extract_random_tree_2(seg_mask, small_mask):
+    """
+    Extract a random tree from the instance segmentation mask.
+
+    Parameters:
+    seg_mask (numpy array): Binary segmentation mask [480, 270] where zeroes are background and ones are tree trunks.
+    small_mask (numpy array): RGB instance segmentation mask [480, 270, 3] where all objects are labelled with unique colors.
+
+    Returns:
+    tree_mask (numpy array): Binary segmentation mask [480, 270] of the extracted tree.
+    tree_center (tuple): Coordinates (y, x) of the random point within the extracted tree.
+    """
+
+    # Find the coordinates of all tree trunk pixels
+    tree_pixels = np.argwhere(seg_mask == 1)
+    dbgprint(dataloader, LogLevel.INFO, f'trunk_coords = {tree_pixels}')
+
+    # Randomly select a tree trunk pixel
+    tree_center = tuple(tree_pixels[np.random.choice(len(tree_pixels))])
+    dbgprint(dataloader, LogLevel.INFO, f'random_coord = {tree_center}')
+
+    # Get the color of the selected tree trunk pixel from the instance segmentation mask
+    tree_color = small_mask[tree_center[0], tree_center[1]]
+
+    # Create a binary mask for the extracted tree
+    tree_mask = np.all(small_mask == tree_color, axis=2).astype(np.uint8)
+
+    return tree_mask, tree_center #[tree_center[1], tree_center[0]]
+
+def select_random_tree_4(seg_mask, small_mask):
+    """
+    Selects a random tree from an instance segmentation mask and returns a binary mask for that tree.
+
+    Parameters:
+    - seg_mask: np.array of shape [480, 270] where 0 is background and 1 represents tree trunks.
+    - small_mask: np.array of shape [480, 270, 3] where each object has a unique color.
+
+    Returns:
+    - tree_mask: np.array of shape [480, 270] where 1 indicates the selected tree and 0 is everything else.
+    - coordinate: Tuple (y, x) representing a random point within the selected tree trunk.
+    """
+    
+    # Find all coordinates where seg_mask is 1 (tree trunks)
+    trunk_coords = np.argwhere(seg_mask == 1)
+    dbgprint(dataloader, LogLevel.TRACE, f'trunk_coords = {trunk_coords}')
+    
+    if len(trunk_coords) == 0:
+        return np.zeros_like(seg_mask, dtype=np.uint8), None,  # No trunks found, return empty mask and None coord
+    #if not trunk_coords.size:
+    #    raise ValueError("No tree trunks found in the segmentation mask.")
+    
+    # Choose a random coordinate from the trunk coordinates
+    x, y = trunk_coords[random.randint(0, len(trunk_coords) - 1)]
+    dbgprint(dataloader, LogLevel.TRACE, f'random_coord = {(x, y)}')
+    
+    # Get the color of the tree at this coordinate from small_mask
+    tree_color = tuple(small_mask[x, y])
+    
+    # Create a mask where only pixels of this color are set to 1
+    tree_mask = np.all(small_mask == tree_color, axis=-1).astype(np.uint8)
+   
+    ''' 
+    # Here we ensure that the selected point indeed belongs to a tree in the final mask
+    if tree_mask[y, x] != 1:
+        # This should rarely happen, but if it does, we'll correct it
+        tree_mask[y, x] = 1  # Force the selected point to be part of the tree
+    ''' 
+    
+    return tree_mask, (x, y)
+
+
+
+
+
+
+
 def good_old_loss(mask, prd_masks, prd_scores):
 	# Segmentaion Loss caclulation
 
-	# [B, H, W, 3] so we always pick just one layer, they're always (0,0,0), (1,1,1) etc.
-	gt_mask  = torch.Tensor(np.array(mask)[:, :, :, 0]).to(torch.float32).cuda()	
+	if False:
+		# [B, H, W, 3] so we always pick just one layer, they're always (0,0,0), (1,1,1) etc.
+		gt_mask  = torch.Tensor(np.array(mask)[:, :, :, 0]).to(torch.float32).cuda()
+	else:
+		# [B, H, W] nothing to see here...
+		gt_mask  = torch.Tensor(np.array(mask)).to(torch.float32).cuda()	
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'good_old_loss() - {type(gt_mask) = } - {gt_mask.shape = } - {gt_mask.dtype = }')
 	prd_mask = torch.sigmoid(prd_masks[:, 0])# Turn logit map to probability map
 	dbgprint(Subsystem.LOSS, LogLevel.TRACE, f'good_old_loss() - {type(prd_mask) = } - {prd_mask.shape = } - {prd_mask.dtype = }')
@@ -961,7 +1140,12 @@ def validate(predictor, val_loader):
 						wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
 						wandb.log({"Preds": wdb_pred_masks})
 					if itr == 0:
-						wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
+						if False:
+							# [B, H, W, 3] so we always pick just one layer, they're always (0,0,0), (1,1,1) etc.
+							wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
+						else:
+							# [B, H, W] nothing to see here...
+							wandb_log_masked_images(images, torch.Tensor(np.array(small_masks)), pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
 				else:
 					raise Exception(f"Unknown dataset: {dataset_name}")
 				if itr == 0:
@@ -1019,6 +1203,7 @@ def training_loop(predictor, optimizer, scaler,
 	
 	dbgprint(train, LogLevel.TRACE, f'{type(images) = } {type(masks) = } {type(input_points) = }')
 	dbgprint(train, LogLevel.TRACE, f'{len(images)  = } {len(masks)  = } {len(input_points) = }')
+	dbgprint(train, LogLevel.TRACE,  f'{input_points = }')
 	input_points = torch.tensor(np.array(input_points)).cuda().float()
 	#input_label  = torch.ones(input_points.shape[0], 1).cuda().float() # create labels
 	if 'labpic' in dataset_name:
@@ -1155,7 +1340,12 @@ def training_loop(predictor, optimizer, scaler,
 				wdb_pred_masks = wandb.Image(pred_masks[0], caption=f"Pred-epoch-{epoch}-itr-{itr}-1st-batch")
 				wandb.log({"Preds": wdb_pred_masks})
 			if itr == 0:
-				wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
+				if False:
+					# [B, H, W, 3] so we always pick just one layer, they're always (0,0,0), (1,1,1) etc.
+					wandb_log_masked_images(images, torch.Tensor(np.array(small_masks))[:, :, :, 0], pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
+				else:
+					# [B, H, W] nothing to see here...
+					wandb_log_masked_images(images, torch.Tensor(np.array(small_masks)), pred_masks, pred_scores, class_labels = {0: "background", 1: "prediction"})
 		else:
 			raise Exception(f"Unknown dataset: {dataset_name}")
 		if itr == 0:
