@@ -15,6 +15,8 @@ from dbgprint import *
 
 from instance_seg_loss import read_color_palette, read_colorid_file
 
+from utils import draw_points_on_image
+
 def get_random_tree_mask(seg_mask, small_mask):
   """
   Extracts a random tree instance mask from instance segmentation data,
@@ -88,14 +90,68 @@ def select_random_tree(seg_mask, small_mask):
     # Create a mask where only pixels of this color are set to 1
     tree_mask = np.all(small_mask == tree_color, axis=-1).astype(np.uint8)
    
-    ''' 
-    # Here we ensure that the selected point indeed belongs to a tree in the final mask
-    if tree_mask[y, x] != 1:
-        # This should rarely happen, but if it does, we'll correct it
-        tree_mask[y, x] = 1  # Force the selected point to be part of the tree
-    ''' 
-    
     return tree_mask, (x, y)
+
+
+def get_all_trees(seg_mask, iseg_mask):
+	"""
+	Extracts all tree instance masks, their center points, and bounding boxes.
+
+	Args:
+		seg_mask: A binary mask (480x270) where 1 represents tree trunks.
+		iseg_mask: An RGB instance segmentation mask (480x270x3) with unique
+			colors for each tree instance.
+
+	Returns:
+		A list of tuples, where each tuple contains:
+			- tree_mask: A binary mask (480x270) representing a single tree instance.
+			- center_point: A tuple (row, col) representing the center of the tree mask.
+			- bbox: A tuple (x_min, y_min, x_max, y_max) representing the bounding box.
+			- color: the color of the instance segmentation mask returned
+	"""
+	# 1. Mask out background in iseg_mask using seg_mask
+	masked_iseg = iseg_mask * np.expand_dims(seg_mask, axis=-1)
+	
+	# 2. Get unique colors (representing different trees) from the masked segmentation
+	unique_colors = np.unique(masked_iseg.reshape(-1, 3), axis=0)
+	
+	# Remove background (black) color [0, 0, 0]
+	#unique_colors = unique_colors[~np.all(unique_colors == 0, axis=1)]
+
+	trunk_coords = np.argwhere(seg_mask == 1)
+
+	results = []
+
+	for color in unique_colors:
+		# 3. Create binary mask for each color (tree instance)
+		tree_mask = np.all(iseg_mask == color, axis=-1).astype(np.uint8)
+		
+		# 4. Calculate bounding box using OpenCV
+		x, y, w, h = cv2.boundingRect(tree_mask)
+
+		bbox = (x, y, x + w, y + h)
+
+		# 5. Calculate tree center (centroid) from the mask
+		coords = np.column_stack(np.where(tree_mask == 1))
+		if len(coords) > 0:
+			center = coords.mean(axis=0).astype(int)
+			center_point = (center[0], center[1])  # (row, col)
+		else:
+			center_point = None
+			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees() - No coordinates found for tree with color: {color}')
+
+		if center_point not in trunk_coords:
+			dbgprint(dataloader, LogLevel.WARNING,   f'get_all_trees() - center_point not in trunk_coords: {center_point} - {trunk_coords}')
+			continue
+
+		nonzero = np.count_nonzero(tree_mask)
+
+		# 6. Store result
+		results.append((tree_mask, center_point, bbox, color, nonzero))
+
+	return results
+
+
 
 
 
@@ -245,34 +301,54 @@ class SpreadDataset(Dataset):
 		seg_mask = cv2.resize(seg_mask,   (small_mask.shape[1], small_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
 		#cv2.imshow("Segmentation resized", seg_mask * 255)
 
-		tree_mask, tree_center = select_random_tree(seg_mask, small_mask)
-		if tree_center is None:
-			dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask - {ent["image_fn"]}')
-			tree_center = [0, 0]
 
-		if self.debug_semantic_segmentation_masks:
-			tree_mask_1, tree_center_1 = get_random_tree_mask(seg_mask, small_mask)
-			#tree_mask_2, tree_center_2 = extract_random_tree_2 (seg_mask, small_mask)
-			tree_mask_2, tree_center_2 = select_random_tree(seg_mask, small_mask)
 
-			if tree_center_1 is None:
-				dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 1 - {ent["image_fn"]}')
-			if tree_center_2 is None:
-				dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 2 - {ent["image_fn"]}')
-	
-			#tree_mask_1 = draw_points_on_image(cv2.cvtColor(tree_mask_1, cv2.COLOR_GRAY2RGB), [list(tree_center_1)])
-			#tree_mask_2 = draw_points_on_image(cv2.cvtColor(tree_mask_2, cv2.COLOR_GRAY2RGB), [list(tree_center_2)])
-			img = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
-			#img = draw_points_on_image(img, [list(tree_center_1), list(tree_center_2)], color=(0, 0, 255), radius=5)
-			img = draw_points_on_image(img, [list(reversed(tree_center_1)), list(reversed(tree_center_2))], color=(0, 0, 255), radius=5)
+		all_the_trees = get_all_trees(seg_mask, small_mask)				# a list of (tree_mask, center_point, bbox)
+		for idx, (tree_mask, center_point, bbox, color, nonzero) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
+			x, y, w, h = bbox
+			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
+			img2 = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
+			img2 = draw_points_on_image(img2, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
+			img2 = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
 			# Display the extracted tree mask
-			cv2.imshow("image", img)
-			cv2.imshow("segmentation", seg_mask * 255)
-			cv2.imshow("instance", small_mask)
-			cv2.imshow("get_random_tree_mask()", tree_mask_1 * 255)
-			#cv2.imshow("extract_random_tree_2()" , tree_mask_2 * 255)
+			cv2.imshow("image",			img2)
+			cv2.imshow("segmentation",		seg_mask * 255)
+			cv2.imshow("instance",			small_mask)
+			cv2.imshow("get_all_trees[{idx}]",	tree_mask * 255)
 			cv2.waitKey(0)
 			cv2.destroyAllWindows()
+
+
+
+		if False:
+			tree_mask, tree_center = select_random_tree(seg_mask, small_mask)
+			if tree_center is None:
+				dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask - {ent["image_fn"]}')
+				tree_center = [0, 0]
+	
+			if self.debug_semantic_segmentation_masks:
+				tree_mask_1, tree_center_1 = get_random_tree_mask(seg_mask, small_mask)
+				#tree_mask_2, tree_center_2 = extract_random_tree_2 (seg_mask, small_mask)
+				tree_mask_2, tree_center_2 = select_random_tree(seg_mask, small_mask)
+	
+				if tree_center_1 is None:
+					dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 1 - {ent["image_fn"]}')
+				if tree_center_2 is None:
+					dbgprint(dataloader, LogLevel.WARNING, f'Error getting random tree mask 2 - {ent["image_fn"]}')
+		
+				#tree_mask_1 = draw_points_on_image(cv2.cvtColor(tree_mask_1, cv2.COLOR_GRAY2RGB), [list(tree_center_1)])
+				#tree_mask_2 = draw_points_on_image(cv2.cvtColor(tree_mask_2, cv2.COLOR_GRAY2RGB), [list(tree_center_2)])
+				img = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
+				#img = draw_points_on_image(img, [list(tree_center_1), list(tree_center_2)], color=(0, 0, 255), radius=5)
+				img = draw_points_on_image(img, [list(reversed(tree_center_1)), list(reversed(tree_center_2))], color=(0, 0, 255), radius=5)
+				# Display the extracted tree mask
+				cv2.imshow("image", img)
+				cv2.imshow("segmentation", seg_mask * 255)
+				cv2.imshow("instance", small_mask)
+				cv2.imshow("get_random_tree_mask()", tree_mask_1 * 255)
+				#cv2.imshow("extract_random_tree_2()" , tree_mask_2 * 255)
+				cv2.waitKey(0)
+				cv2.destroyAllWindows()
 
 
 
