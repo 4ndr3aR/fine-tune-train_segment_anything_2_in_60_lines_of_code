@@ -93,6 +93,42 @@ def select_random_tree(seg_mask, small_mask):
     return tree_mask, (x, y)
 
 
+
+def find_valid_centroid(mask):
+    # Calculate image moments
+    M = cv2.moments(mask)
+
+    # Calculate the raw centroid coordinates
+    if M["m00"] != 0:
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"])
+    else:
+        # Fallback if no white pixel is detected
+        return None
+
+    # If the centroid is already within the mask, return it
+    if mask[cY, cX] > 0:
+        return (cX, cY)
+
+    # Otherwise, use the contours to find the nearest point inside the mask
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Find the point on the contour closest to the raw centroid
+    min_dist = float("inf")
+    closest_point = (cX, cY)
+
+    for contour in contours:
+        for point in contour:
+            px, py = point[0]
+            dist = np.sqrt((px - cX) ** 2 + (py - cY) ** 2)
+            if dist < min_dist:
+                min_dist = dist
+                closest_point = (px, py)
+
+    return closest_point
+
+
+
 def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 	"""
 	Extracts all tree instance masks, their center points, and bounding boxes.
@@ -125,6 +161,11 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 	for color in unique_colors:
 		# 3. Create binary mask for each color (tree instance)
 		tree_mask = np.all(iseg_mask == color, axis=-1).astype(np.uint8)
+		nonzero   = np.count_nonzero(tree_mask)
+		dbgprint(dataloader, LogLevel.INFO,		f'get_all_trees() - Considering color: {color} - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc}')
+		if nonzero < px_threshold or nonzero < px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
+			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE')
+			continue
 		
 		# 4. Calculate bounding box using OpenCV
 		x, y, w, h = cv2.boundingRect(tree_mask)
@@ -133,26 +174,25 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 
 		# 5. Calculate tree center (centroid) from the mask
 		coords = np.column_stack(np.where(tree_mask == 1))
+		dbgprint(dataloader, LogLevel.TRACE,		f'get_all_trees() - Found tree coordinates: {len(coords)} - {coords}')
 		if len(coords) > 0:
-			center = coords.mean(axis=0).astype(int)
-			center_point = (center[0], center[1])  # (row, col)
+			#center = coords.mean(axis=0).astype(int)
+			center = find_valid_centroid(tree_mask)
+			center_point = (center[1], center[0])  # (row, col)
+			dbgprint(dataloader, LogLevel.INFO,	f'get_all_trees() - Found center point: {center_point}')
 		else:
 			center_point = None
-			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees() - No coordinates found for tree with color: {color}')
+			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - No coordinates found for tree with color: {color}')
 			continue
 
 		if seg_mask[center_point[0], center_point[1]] == 0:
-			dbgprint(dataloader, LogLevel.WARNING,   f'get_all_trees() - center_point not in trunk_coords: {center_point} - {trunk_coords}')
+			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - center_point not in trunk_coords: {center_point} - {trunk_coords}')
 			continue
 
-		nonzero = np.count_nonzero(tree_mask)
-
 		# 6. Store result
-		if nonzero > px_threshold and nonzero > px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
-			results.append((tree_mask, center_point, bbox, color, nonzero))
-		else:
-			dbgprint(dataloader, LogLevel.WARNING,   f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0}')
+		results.append((tree_mask, center_point, bbox, color, nonzero))
 
+	dbgprint(dataloader, LogLevel.FATAL, f'get_all_trees() - returned {len(results)} trees above the provided pixel threshold')
 	return results
 
 
@@ -307,7 +347,7 @@ class SpreadDataset(Dataset):
 
 
 
-		all_the_trees = get_all_trees(seg_mask, small_mask)				# a list of (tree_mask, center_point, bbox)
+		all_the_trees = get_all_trees(seg_mask, small_mask, px_threshold_perc=0.1)		# a list of (tree_mask, center_point, bbox)
 		for idx, (tree_mask, center_point, bbox, color, nonzero) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
 			x, y, w, h = bbox
 			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
