@@ -93,7 +93,7 @@ def select_random_tree(seg_mask, small_mask):
     return tree_mask, (x, y)
 
 
-def get_all_trees(seg_mask, iseg_mask):
+def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 	"""
 	Extracts all tree instance masks, their center points, and bounding boxes.
 
@@ -139,15 +139,19 @@ def get_all_trees(seg_mask, iseg_mask):
 		else:
 			center_point = None
 			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees() - No coordinates found for tree with color: {color}')
+			continue
 
-		if center_point not in trunk_coords:
+		if seg_mask[center_point[0], center_point[1]] == 0:
 			dbgprint(dataloader, LogLevel.WARNING,   f'get_all_trees() - center_point not in trunk_coords: {center_point} - {trunk_coords}')
 			continue
 
 		nonzero = np.count_nonzero(tree_mask)
 
 		# 6. Store result
-		results.append((tree_mask, center_point, bbox, color, nonzero))
+		if nonzero > px_threshold and nonzero > px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
+			results.append((tree_mask, center_point, bbox, color, nonzero))
+		else:
+			dbgprint(dataloader, LogLevel.WARNING,   f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0}')
 
 	return results
 
@@ -310,10 +314,17 @@ class SpreadDataset(Dataset):
 			img2 = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
 			img2 = draw_points_on_image(img2, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
 			img2 = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
+			print(f'tree_mask.shape: {tree_mask.shape}')
+			colored_tree_mask = cv2.bitwise_and(small_mask, small_mask, mask=tree_mask)
+			#colored_tree_mask = small_mask[tree_mask]
+			#colored_tree_mask = small_mask[tree_mask == 1]
+			#colored_tree_mask = colored_tree_mask.reshape((small_mask.shape[0], small_mask.shape[1], 3))
+			print(f'colored_tree_mask.shape: {colored_tree_mask.shape}')
 			# Display the extracted tree mask
 			cv2.imshow("image",			img2)
 			cv2.imshow("segmentation",		seg_mask * 255)
 			cv2.imshow("instance",			small_mask)
+			cv2.imshow("colored_tree mask",		colored_tree_mask)
 			cv2.imshow("get_all_trees[{idx}]",	tree_mask * 255)
 			cv2.waitKey(0)
 			cv2.destroyAllWindows()
