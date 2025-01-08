@@ -129,7 +129,7 @@ def find_valid_centroid(mask):
 
 
 
-def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
+def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, debug_save_all_masks=True):
 	"""
 	Extracts all tree instance masks, their center points, and bounding boxes.
 
@@ -159,12 +159,25 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 	results = []
 
 	for color in unique_colors:
+		if list(color) == [0, 0, 0] or list(color) == [255, 255, 255]:
+			continue
 		# 3. Create binary mask for each color (tree instance)
-		tree_mask = np.all(iseg_mask == color, axis=-1).astype(np.uint8)
-		nonzero   = np.count_nonzero(tree_mask)
+		tree_mask	= np.all(iseg_mask == color, axis=-1).astype(np.uint8)
+		tree_trunk	= seg_mask & tree_mask
+		nonzero		= np.count_nonzero(tree_mask)
+		if debug_save_all_masks:
+			rgb_tree_mask	= cv2.bitwise_and(iseg_mask, iseg_mask, mask=tree_mask)
+			#rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(x), int(y)), radius, color, thickness)
+			cv2.imwrite(f'/tmp/instance-seg-mask-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', rgb_tree_mask)
+			cv2.imwrite(f'/tmp/tree-trunk-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', tree_trunk)
 		dbgprint(dataloader, LogLevel.INFO,		f'get_all_trees() - Considering color: {color} - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc}')
 		if nonzero < px_threshold or nonzero < px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
 			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE')
+			continue
+		nonzero_tree_trunk = np.count_nonzero(tree_trunk)
+		print(f'get_all_trees() - nonzero_tree_trunk = {nonzero_tree_trunk}')
+		if nonzero_tree_trunk < px_threshold or nonzero_tree_trunk < px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
+			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - tree trunk mask = {nonzero_tree_trunk} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE')
 			continue
 		
 		# 4. Calculate bounding box using OpenCV
@@ -177,7 +190,9 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 		dbgprint(dataloader, LogLevel.TRACE,		f'get_all_trees() - Found tree coordinates: {len(coords)} - {coords}')
 		if len(coords) > 0:
 			#center = coords.mean(axis=0).astype(int)
-			center = find_valid_centroid(tree_mask)
+			center = find_valid_centroid(tree_trunk)
+			rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(center[1]), int(center[0])), 1, (0, 0, 255), -1)
+			cv2.imwrite(f'/tmp/instance-seg-mask-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', rgb_tree_mask)
 			center_point = (center[1], center[0])  # (row, col)
 			dbgprint(dataloader, LogLevel.INFO,	f'get_all_trees() - Found center point: {center_point}')
 		else:
@@ -186,7 +201,9 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1):
 			continue
 
 		if seg_mask[center_point[0], center_point[1]] == 0:
-			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - center_point not in trunk_coords: {center_point} - {trunk_coords}')
+			coords_str1 = " ".join([f"({x}, {y})" for x, y in trunk_coords[:3]])
+			coords_str2 = " ".join([f"({x}, {y})" for x, y in trunk_coords[-3:]])
+			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - center_point not in trunk_coords: {center_point} - {coords_str1} ... {coords_str2}')
 			continue
 
 		# 6. Store result
@@ -308,7 +325,7 @@ class SpreadDataset(Dataset):
 		if ent["image"] is not None:
 			img = ent["image"]
 		else:
-			dbgprint(dataloader, LogLevel.TRACE, f'Reading image: {ent["image_fn"]}')
+			dbgprint(dataloader, LogLevel.INFO, f'Reading image: {ent["image_fn"]}')
 			img = cv2.imread(ent["image_fn"])[..., ::-1]
 		dbgprint(dataloader, LogLevel.TRACE, f"------------------- Image shape: {img.shape}")
 		if img is None:
@@ -354,18 +371,23 @@ class SpreadDataset(Dataset):
 			img2 = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
 			img2 = draw_points_on_image(img2, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
 			img2 = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
-			print(f'tree_mask.shape: {tree_mask.shape}')
+			#print(f'tree_mask.shape: {tree_mask.shape}')
 			colored_tree_mask = cv2.bitwise_and(small_mask, small_mask, mask=tree_mask)
 			#colored_tree_mask = small_mask[tree_mask]
 			#colored_tree_mask = small_mask[tree_mask == 1]
 			#colored_tree_mask = colored_tree_mask.reshape((small_mask.shape[0], small_mask.shape[1], 3))
-			print(f'colored_tree_mask.shape: {colored_tree_mask.shape}')
+			#print(f'colored_tree_mask.shape: {colored_tree_mask.shape}')
 			# Display the extracted tree mask
 			cv2.imshow("image",			img2)
 			cv2.imshow("segmentation",		seg_mask * 255)
 			cv2.imshow("instance",			small_mask)
 			cv2.imshow("colored_tree mask",		colored_tree_mask)
-			cv2.imshow("get_all_trees[{idx}]",	tree_mask * 255)
+			cv2.imshow(f"get_all_trees[{idx}]",	tree_mask * 255)
+			cv2.moveWindow("image"			, 100, -30)
+			cv2.moveWindow("instance"		, 100, 360)
+			cv2.moveWindow("segmentation"		, 100, 680)
+			cv2.moveWindow("colored_tree mask"	, 630, 100)
+			cv2.moveWindow(f"get_all_trees[{idx}]"	, 630, 460)
 			cv2.waitKey(0)
 			cv2.destroyAllWindows()
 
