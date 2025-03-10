@@ -218,6 +218,325 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, de
 	return results
 
 
+def extract_main_blob(image):
+	# Ensure the input is a numpy array
+	image = np.array(image)
+
+	img = cv2.dilate(image, np.ones((3, 3), np.uint8))
+
+	# Check if the image is 2D
+	if img.ndim != 2:
+		raise ValueError("Input image must be a 2D array")
+
+	# Preserve original data type and determine the maximum value
+	original_dtype = img.dtype
+	max_val = img.max() if img.size > 0 else 0
+
+	# Convert the image to uint8 for OpenCV processing
+	if img.dtype == bool:
+		img_uint8 = img.astype(np.uint8) * 255
+	else:
+		img_uint8 = img.astype(np.uint8)
+
+	# Perform connected component analysis
+	num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(img_uint8)
+
+	# If there are no foreground components, return a blank image
+	if num_labels <= 1:
+		return np.zeros_like(img, dtype=original_dtype)
+
+	# Identify the largest component (excluding the background)
+	areas = stats[1:, cv2.CC_STAT_AREA]
+	if len(areas) == 0:
+		return np.zeros_like(img, dtype=original_dtype)
+	max_area_idx = np.argmax(areas)
+	max_label = max_area_idx + 1  # Adjust for background label 0
+
+	# Create the mask for the largest component
+	mask = (labels == max_label)
+
+	# Convert the mask to the original data type and scale
+	if original_dtype == bool:
+		result = mask.astype(bool)
+	else:
+		result = mask.astype(original_dtype) * max_val
+
+	return result
+
+
+
+def extract_blobs_above_threshold(image, threshold=5):
+	"""
+	Returns a mask containing all blobs (connected components) 
+	with area >= specified threshold (in pixels).
+	"""
+	# Ensure input is a numpy array
+	image = np.array(image)
+
+	# Check if image is 2D
+	if image.ndim != 2:
+		raise ValueError("Input image must be a 2D array")
+
+	# Preserve original data type and determine max value
+	original_dtype = image.dtype
+	max_val = image.max() if image.size > 0 else 0
+
+	# Convert to uint8 format for OpenCV processing
+	if image.dtype == bool:
+		image_uint8 = image.astype(np.uint8) * 255
+	else:
+		image_uint8 = image.astype(np.uint8)
+
+	# Perform connected component analysis
+	num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(image_uint8)
+
+	# Handle case of no foreground components
+	if num_labels <= 1:
+		return np.zeros_like(image, dtype=original_dtype)
+
+	# Find all components (excluding background) that meet the area threshold
+	qualifying_labels = []
+	for label in range(1, num_labels):
+		area = stats[label, cv2.CC_STAT_AREA]
+		if area >= threshold:
+			qualifying_labels.append(label)
+
+	# Return blank mask if no components meet threshold
+	if not qualifying_labels:
+		return np.zeros_like(image, dtype=original_dtype)
+
+	# Create combined mask of all qualifying components
+	mask = np.isin(labels, qualifying_labels)
+
+	# Convert to original data type and scaling
+	if original_dtype == bool:
+		result = mask.astype(bool)
+	else:
+		result = mask.astype(original_dtype) * max_val
+
+	return result
+
+
+
+def extract_blobs_above_threshold_1(image, 
+                                  threshold=5, 
+                                  cluster_centroid_distance=100, 
+                                  distant_blobs_threshold_px=50, 
+                                  large_blob_threshold=50):
+    """
+    Written by: o1-2024-12-17
+
+    Returns a mask containing all blobs (connected components) that satisfy:
+      1) blob area >= 'threshold', AND
+      2) either blob is within 'cluster_centroid_distance' of the main cluster 
+         (the largest blob by area), OR
+      3) blob area >= 'large_blob_threshold' (kept regardless of distance).
+      
+    Additionally, if a blob is further than 'cluster_centroid_distance' from
+    the main cluster centroid and has area < 'distant_blobs_threshold_px',
+    it is discarded.
+    
+    Parameters
+    ----------
+    image : array_like
+        2D input binary (or integer) image.
+    threshold : int, optional
+        Minimum blob area, in pixels, to even be considered.
+    cluster_centroid_distance : float, optional
+        Distance threshold from the main cluster's centroid, beyond which small
+        blobs are discarded.
+    distant_blobs_threshold_px : int, optional
+        If a blob's area is below this value, and it lies farther than 
+        'cluster_centroid_distance' from the main cluster centroid, discard it.
+    large_blob_threshold : int, optional
+        If a blob's area is at least this large, keep it regardless of distance.
+        
+    Returns
+    -------
+    result : ndarray
+        2D binary mask (same shape as 'image') with the kept blobs. Has the same 
+        dtype as the original image (bool or integer).
+    """
+    # Ensure input is a numpy array
+    image = np.array(image)
+
+    # Check if image is 2D
+    if image.ndim != 2:
+        raise ValueError("Input image must be a 2D array")
+
+    # Preserve original data type and determine max value
+    original_dtype = image.dtype
+    max_val = image.max() if image.size > 0 else 0
+
+    # Convert to uint8 format for OpenCV processing
+    if image.dtype == bool:
+        image_uint8 = image.astype(np.uint8) * 255
+    else:
+        image_uint8 = image.astype(np.uint8)
+
+    # Perform connected component analysis
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(image_uint8)
+
+    # Handle case of no foreground components
+    if num_labels <= 1:
+        return np.zeros_like(image, dtype=original_dtype)
+
+    # Find the label with the largest area (excluding background = label 0)
+    largest_label = None
+    largest_area = 0
+    for label_id in range(1, num_labels):
+        area = stats[label_id, cv2.CC_STAT_AREA]
+        if area > largest_area:
+            largest_area = area
+            largest_label = label_id
+
+    # If even the largest label doesn't meet the basic threshold, return empty
+    if largest_area < threshold:
+        return np.zeros_like(image, dtype=original_dtype)
+
+    # Get centroid of the largest cluster
+    main_centroid = centroids[largest_label]  # [y_center, x_center]
+
+    # Decide which labels to keep
+    kept_labels = []
+    for label_id in range(1, num_labels):
+        area = stats[label_id, cv2.CC_STAT_AREA]
+
+        # Only consider blobs that meet the basic pixel threshold
+        if area < threshold:
+            continue
+
+        # Always keep the largest cluster
+        if label_id == largest_label:
+            kept_labels.append(label_id)
+            continue
+
+        # Compute distance to the main cluster's centroid
+        blob_centroid = centroids[label_id]
+        dist = np.linalg.norm(blob_centroid - main_centroid)
+
+        # Check distance criteria
+        if dist > cluster_centroid_distance and area < distant_blobs_threshold_px:
+            # Far away AND too small -> discard
+            continue
+
+        # If it is a large blob, keep it regardless of distance
+        if area >= large_blob_threshold:
+            kept_labels.append(label_id)
+            continue
+
+        # Otherwise, if it's within distance or big enough, we keep it
+        if dist <= cluster_centroid_distance or area >= distant_blobs_threshold_px:
+            kept_labels.append(label_id)
+
+    # Return blank mask if no components are kept
+    if not kept_labels:
+        return np.zeros_like(image, dtype=original_dtype)
+
+    # Create combined mask of all kept components
+    mask = np.isin(labels, kept_labels)
+
+    # Convert to original data type and scaling
+    if original_dtype == bool:
+        result = mask.astype(bool)
+    else:
+        result = mask.astype(original_dtype) * max_val
+
+    return result
+
+
+
+
+def extract_blobs_above_threshold_2(image, threshold=5, distant_blobs_threshold_px=100, cluster_centroid_distance=50):
+    """
+    Written by: amazon-nova-micro-v1.0
+
+    Returns a mask containing all blobs (connected components) 
+    with area >= specified threshold (in pixels) that are close to the main cluster centroid 
+    OR are very large blobs (outside the main cluster of blobs).
+    """
+    # Ensure input is a numpy array
+    image = np.array(image)
+
+    # Check if image is 2D
+    if image.ndim != 2:
+        raise ValueError("Input image must be a 2D array")
+
+    # Preserve original data type and determine max value
+    original_dtype = image.dtype
+    max_val = image.max() if image.size > 0 else 0
+
+    # Convert to uint8 format for OpenCV processing
+    if image.dtype == bool:
+        image_uint8 = image.astype(np.uint8) * 255
+    else:
+        image_uint8 = image.astype(np.uint8)
+
+    # Perform connected component analysis
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(image_uint8)
+
+    # Handle case of no foreground components
+    if num_labels <= 1:
+        return np.zeros_like(image, dtype=original_dtype)
+
+    # Find all components (excluding background) that meet the area threshold
+    qualifying_labels = []
+    for label in range(1, num_labels):
+        area = stats[label, cv2.CC_STAT_AREA]
+        if area >= threshold:
+            qualifying_labels.append(label)
+
+    # Return blank mask if no components meet threshold
+    if not qualifying_labels:
+        return np.zeros_like(image, dtype=original_dtype)
+
+    # Find the largest cluster by total area
+    largest_cluster_label = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1
+    largest_cluster_area = stats[largest_cluster_label, cv2.CC_STAT_AREA]
+    largest_cluster_centroid = centroids[largest_cluster_label]
+
+    # Create combined mask of all qualifying components
+    mask = np.isin(labels, qualifying_labels)
+
+    # Initialize a new mask to store the final result
+    final_mask = np.zeros_like(mask, dtype=bool)
+
+    for label in range(1, num_labels):
+        if label in qualifying_labels:
+            area = stats[label, cv2.CC_STAT_AREA]
+            if area >= threshold:
+                # Calculate centroid of the current blob
+                blob_centroid = centroids[label]
+
+                # Calculate distance from the current blob's centroid to the largest cluster's centroid
+                distance_to_largest_cluster = np.linalg.norm(blob_centroid - largest_cluster_centroid)
+
+                # Check if the blob is either large enough or close to the largest cluster
+                if area >= threshold or (area > distant_blobs_threshold_px and distance_to_largest_cluster < cluster_centroid_distance):
+                    final_mask |= mask[labels == label]
+
+    # Convert to original data type and scaling
+    if original_dtype == bool:
+        result = final_mask.astype(bool)
+    else:
+        result = final_mask.astype(original_dtype) * max_val
+
+    return result
+
+# Example usage:
+# image = np.array([[0, 0, 0, 0, 0],
+#                   [0, 255, 255, 255, 0],
+#                   [0, 255, 0, 255, 0],
+#                   [0, 255, 255, 255, 0],
+#                   [0, 0, 0, 0, 0]], dtype=np.uint8)
+
+# result = extract_blobs_above_threshold(image, threshold=5, distant_blobs_threshold_px=200, cluster_centroid_distance=100)
+# print(result)
+
+
+
+
+
 
 
 
@@ -375,12 +694,14 @@ class SpreadDataset(Dataset):
 		seg_mask = cv2.resize(seg_mask,   (small_mask.shape[1], small_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
 		#cv2.imshow("Segmentation resized", seg_mask * 255)
 
-
-
+		# /mnt/raid1/dataset/spread/spread/rainforest/rgb/Tree2759_1720707548.png
+		# /mnt/raid1/dataset/spread/spread/broadleaf-forest/rgb/Tree2844_1720269936.png
+		tree_centers = []
 		all_the_trees = get_all_trees(seg_mask, small_mask, px_threshold_perc=0.1)		# a list of (tree_mask, center_point, bbox)
 		#all_the_trees = get_all_trees(seg_mask, small_mask)		# a list of (tree_mask, center_point, bbox)
 		for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
 			x, y, w, h = bbox
+			tree_centers.append(center_point)
 			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
 			img2 = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
 			img2 = draw_points_on_image(img2, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
@@ -391,6 +712,21 @@ class SpreadDataset(Dataset):
 			#colored_tree_mask = small_mask[tree_mask == 1]
 			#colored_tree_mask = colored_tree_mask.reshape((small_mask.shape[0], small_mask.shape[1], 3))
 			#print(f'colored_tree_mask.shape: {colored_tree_mask.shape}')
+
+			#largest_blob = extract_main_blob(tree_mask)
+			#largest_blob = extract_blobs_above_threshold(tree_mask, threshold=5)
+			largest_blob = extract_blobs_above_threshold_1(tree_mask,
+                                  threshold=5,
+                                  cluster_centroid_distance=100,
+                                  distant_blobs_threshold_px=50,
+                                  large_blob_threshold=50)
+			'''
+			largest_blob = extract_blobs_above_threshold_2(tree_mask,
+                                  threshold=5,
+                                  cluster_centroid_distance=100,
+                                  distant_blobs_threshold_px=50)
+			'''
+
 			# Display the extracted tree mask
 			cv2.imshow("image",			img2)
 			cv2.imshow("segmentation",		seg_mask   * 255)
@@ -398,12 +734,14 @@ class SpreadDataset(Dataset):
 			cv2.imshow("colored_tree mask",		colored_tree_mask)
 			cv2.imshow(f"get_all_trees[{idx}]",	tree_mask  * 255)
 			cv2.imshow("single tree trunk",		tree_trunk * 255)
+			cv2.imshow("largest blob",		largest_blob * 255)
 			cv2.moveWindow("image"			, 100, -30)
 			cv2.moveWindow("instance"		, 100, 360)
 			cv2.moveWindow("segmentation"		, 100, 680)
 			cv2.moveWindow("colored_tree mask"	, 630, -30)
 			cv2.moveWindow(f"get_all_trees[{idx}]"	, 630, 360)
 			cv2.moveWindow("single tree trunk"	, 630, 680)
+			cv2.moveWindow("largest blob"		, 1130, 360)
 			cv2.waitKey(0)
 			cv2.destroyAllWindows()
 
@@ -525,7 +863,8 @@ class SpreadDataset(Dataset):
 			# we tried to do all the instances at once... we failed. Let's try with the original (dumb) method
 			return img, imask, point, mask, color_ids
 		else:
-			return img, imask, [tree_center], tree_mask, color_ids
+			return img, imask, tree_centers, tree_mask, color_ids
+			#return img, imask, [tree_center], tree_mask, color_ids
 
 
 		#input_points	= np.ravel(input_points)
