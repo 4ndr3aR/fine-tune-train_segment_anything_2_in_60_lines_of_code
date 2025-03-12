@@ -199,10 +199,15 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 								distant_blobs_threshold_px=50,
 								large_blob_threshold=100)
 		'''
-		largest_blob = extract_blobs_above_threshold(tree_mask, threshold=5,
+
+		blob_min_threshold = 5
+		largest_blob, all_blobs = extract_blobs_above_threshold(tree_mask, threshold=blob_min_threshold,
  				                                 cluster_centroid_distance=50,
                                 				  distant_blobs_threshold_px=50,
 				                                  large_blob_threshold=100)
+
+		for label_id, area in enumerate(all_blobs):
+			dbgprint(dataloader, LogLevel.DEBUG, f'Mask with color {color} - has blob {label_id} with area {area} - threshold {blob_min_threshold}')
 
 		tree_mask = largest_blob & tree_mask
 	
@@ -331,6 +336,7 @@ def extract_blobs_above_threshold(image,
 	image = np.array(image)
 
 	image = cv2.dilate(image, np.ones((3, 3), np.uint8))
+	image = cv2.erode (image, np.ones((3, 3), np.uint8))
 
 	# Check if image is 2D
 	if image.ndim != 2:
@@ -371,11 +377,15 @@ def extract_blobs_above_threshold(image,
 
 	# Decide which labels to keep
 	kept_labels = []
+	all_blobs   = []
 	for label_id in range(1, num_labels):
 		area = stats[label_id, cv2.CC_STAT_AREA]
 
 		# Only consider blobs that meet the basic pixel threshold
+		dbgprint(dataloader, LogLevel.TRACE, f'Considering blob {label_id} with area {area} and threshold {threshold}')
+		all_blobs.append(area)
 		if area < threshold:
+			dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 1 - too small to be even considered')
 			continue
 
 		# Always keep the largest cluster
@@ -390,6 +400,7 @@ def extract_blobs_above_threshold(image,
 		# Check distance criteria
 		if dist > cluster_centroid_distance and area < distant_blobs_threshold_px:
 			# Far away AND too small -> discard
+			dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 2 - far away (dist: {dist} px > {cluster_centroid_distance}) and too small (area: {area} < {distant_blobs_threshold_px} px)')
 			continue
 
 		# If it is a large blob, keep it regardless of distance
@@ -414,9 +425,7 @@ def extract_blobs_above_threshold(image,
 	else:
 		result = mask.astype(original_dtype) * max_val
 
-	result = cv2.erode(result, np.ones((3, 3), np.uint8))
-
-	return result
+	return result, all_blobs
 
 
 
@@ -498,7 +507,8 @@ class SpreadDataset(Dataset):
 						"instance_fn"	 : imask_fn,
 						"segmentation_fn": smask_fn,
 						"colorid_fn"	 : colorid_fn,
-						"image"		 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
+						"image"		 : cv2.imread(im_fn) if self.preload else None,
+						#"image"	 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
 						#"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1] if self.preload else None, # RGB plz
 						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,
 						"segmentation"	 : cv2.imread(smask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,            # Grayscale
@@ -533,14 +543,14 @@ class SpreadDataset(Dataset):
 		debug_specific_filename = True
 		if debug_specific_filename:
 			debug_basepath		= '/mnt/raid1/dataset/spread/spread'
-			debug_category		= 'plantation'
-			debug_fn		= 'Tree789_1721038462.png'
 			debug_category		= 'suburb-us'
 			debug_fn		= 'Tree26_1721909084.png'
 			debug_fn		= 'Tree101_1721921788.png'
 			debug_category		= 'birch-forest'
-			debug_fn		= 'Tree27827_1720529494.png'
 			debug_fn		= 'Tree8159_1720508295.png'
+			debug_fn		= 'Tree27827_1720529494.png'
+			debug_category		= 'plantation'
+			debug_fn		= 'Tree789_1721038462.png'
 			ent["image_fn"]		= f'{debug_basepath}/{debug_category}/rgb/{debug_fn}'
 			ent["segmentation_fn"]	= f'{debug_basepath}/{debug_category}/semantic_segmentation/{debug_fn}'
 			ent["instance_fn"]	= f'{debug_basepath}/{debug_category}/instance_segmentation/{debug_fn}'
@@ -589,6 +599,9 @@ class SpreadDataset(Dataset):
 		tree_centers  = []
 		all_the_trees = get_all_trees(seg_mask, small_mask, px_threshold=50, px_threshold_perc=0.01)	# in the end we also set px_threshold, we want at least 50px masks
 		masked_iseg   = small_mask * np.expand_dims(seg_mask, axis=-1)
+
+		cv2.destroyAllWindows()
+
 		for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
 
 			'''
