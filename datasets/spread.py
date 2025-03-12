@@ -202,9 +202,9 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 
 		blob_min_threshold = 5
 		largest_blob, all_blobs = extract_blobs_above_threshold(tree_mask, threshold=blob_min_threshold,
- 				                                 cluster_centroid_distance=50,
-                                				  distant_blobs_threshold_px=50,
-				                                  large_blob_threshold=100)
+									cluster_centroid_distance=50,
+									distant_blobs_threshold_px=75,
+									large_blob_threshold=100)
 
 		for label_id, area in enumerate(all_blobs):
 			dbgprint(dataloader, LogLevel.DEBUG, f'Mask with color {color} - has blob {label_id} with area {area} - threshold {blob_min_threshold}')
@@ -295,9 +295,9 @@ def extract_main_blob(image):
 
 def extract_blobs_above_threshold(image, 
                                   threshold=5, 
-                                  cluster_centroid_distance=100, 
-                                  distant_blobs_threshold_px=50, 
-                                  large_blob_threshold=50):
+                                  cluster_centroid_distance=50, 
+                                  distant_blobs_threshold_px=75, 
+                                  large_blob_threshold=75):
 	"""
 	Written by: o1-2024-12-17
 
@@ -382,7 +382,7 @@ def extract_blobs_above_threshold(image,
 		area = stats[label_id, cv2.CC_STAT_AREA]
 
 		# Only consider blobs that meet the basic pixel threshold
-		dbgprint(dataloader, LogLevel.TRACE, f'Considering blob {label_id} with area {area} and threshold {threshold}')
+		dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold}')
 		all_blobs.append(area)
 		if area < threshold:
 			dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 1 - too small to be even considered')
@@ -549,8 +549,25 @@ class SpreadDataset(Dataset):
 			debug_category		= 'birch-forest'
 			debug_fn		= 'Tree8159_1720508295.png'
 			debug_fn		= 'Tree27827_1720529494.png'
+			debug_fn		= 'Tree49220_1720578742.png'
 			debug_category		= 'plantation'
 			debug_fn		= 'Tree789_1721038462.png'
+			debug_category		= 'city-park'
+			debug_fn		= 'Tree4034_1720940143.png'
+			debug_category		= 'broadleaf-forest'
+			debug_fn		= 'Tree5396_1720256863.png'
+			debug_category		= 'redwood-forest'
+			debug_fn		= 'Tree1658_1720853346.png'
+			debug_category		= 'redwood-forest'
+			debug_fn		= 'Tree2880_1720832884.png'
+			debug_category		= 'rainforest'
+			debug_fn		= 'Tree6174_1720699065.png'
+			debug_fn		= 'Tree3964_1720766396.png'
+
+			# /mnt/raid1/dataset/spread/spread/downtown-west/rgb/Tree115_1721227304.png
+			debug_category		= 'downtown-west'
+			debug_fn		= 'Tree115_1721227304.png'
+
 			ent["image_fn"]		= f'{debug_basepath}/{debug_category}/rgb/{debug_fn}'
 			ent["segmentation_fn"]	= f'{debug_basepath}/{debug_category}/semantic_segmentation/{debug_fn}'
 			ent["instance_fn"]	= f'{debug_basepath}/{debug_category}/instance_segmentation/{debug_fn}'
