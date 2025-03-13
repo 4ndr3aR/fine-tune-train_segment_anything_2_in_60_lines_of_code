@@ -165,13 +165,17 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 	results = []
 	subj_color = [6, 108, 153]		# this is the "main subject" color, we'll make an exception for it
 
+	# 3. Create binary mask for each color (tree instance)
 	for color in unique_colors:
 		if list(color) == [0, 0, 0] or list(color) == [255, 255, 255]:
 			continue
-		# 3. Create binary mask for each color (tree instance)
-		tree_mask	= np.all(iseg_mask == color, axis=-1).astype(np.uint8)	# grab all the pixels corresponding to the current color (e.g. usually a single tree)
-		tree_trunk	= seg_mask & tree_mask					# mask "this tree" (dirty as hell usually) with all the seg. map ("all" the trunks)
-		nonzero		= np.count_nonzero(tree_mask)				# count the pixels in the current single tree mask
+		# grab all the pixels corresponding to the current color (e.g. usually a single tree)
+		tree_mask	= np.all(iseg_mask == color, axis=-1).astype(np.uint8)
+		dbgprint(dataloader, LogLevel.TRACE, f'{seg_mask.shape = } - {tree_mask.shape = } - {seg_mask.dtype = } - {tree_mask.dtype = }')
+		# mask "this tree" (dirty as hell usually) with all the seg. map ("all" the trunks)
+		tree_trunk	= seg_mask & tree_mask
+		# count the pixels in the current single tree mask
+		nonzero		= np.count_nonzero(tree_mask)
 		if debug_save_all_masks:
 			rgb_tree_mask	= cv2.bitwise_and(iseg_mask, iseg_mask, mask=tree_mask)
 			#rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(x), int(y)), radius, color, thickness)
@@ -431,7 +435,58 @@ def extract_blobs_above_threshold(image,
 
 
 
+def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
+	masked_iseg   = small_mask * np.expand_dims(seg_mask, axis=-1)
+	
+	tree_centers  = []
+	cv2.destroyAllWindows()
+	
+	dbgprint(dataloader, LogLevel.INFO, f'Processing image: {image_fn} with {len(all_the_trees)} trees')
+	for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
+	
+		bbox = get_bbox(tree_mask)
+		x, y, w, h = bbox
+	
+		tree_centers.append(center_point)
+		dbgprint(dataloader, LogLevel.DEBUG, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
+		img_small = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
+		img2      = draw_points_on_image(img_small, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
+		img2      = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
+		colored_tree_mask = cv2.bitwise_and(small_mask, small_mask, mask=tree_mask)
+	
+		white_bg   = cv2.bitwise_not(np.zeros_like(img_small))
+		masked_img = cv2.bitwise_and(img_small,	img_small, mask=tree_mask)
+		inv_mask   = cv2.bitwise_not(tree_mask*255)
+		masked_bg  = cv2.bitwise_and(white_bg,	white_bg,  mask=inv_mask)
+		masked_img = cv2.bitwise_or(masked_img, masked_bg)
+	
+	
+		# Display the extracted tree mask
+		cv2.imshow("image_winid",			img2)
+		cv2.imshow("segmentation",			seg_mask   * 255)
+		cv2.imshow("instance",				small_mask)
+		cv2.imshow("colored_tree mask",			colored_tree_mask)
+		cv2.imshow("get_all_trees_winid",		tree_mask  * 255)
+		cv2.imshow("single tree trunk",			tree_trunk * 255)
+		cv2.imshow("largest blob",			largest_blob * 255)
+		cv2.imshow('seg mask & iseg mask',		masked_iseg)
+		#cv2.imshow("masked image",			img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
+		cv2.imshow("masked image",			masked_img)
+		cv2.setWindowTitle("get_all_trees_winid",	f"get_all_trees[{idx}] of {len(all_the_trees)}")
+		cv2.setWindowTitle("image_winid",		f"{Path(image_fn).parent.parent.name}/{Path(image_fn).name}")
+		cv2.moveWindow("image_winid",			 100, -30)
+		cv2.moveWindow("instance",			 100, 360)
+		cv2.moveWindow("segmentation",			 100, 680)
+		cv2.moveWindow("colored_tree mask",		 630, -30)
+		cv2.moveWindow("get_all_trees_winid",		 630, 360)
+		cv2.moveWindow("single tree trunk",		 630, 680)
+		cv2.moveWindow("masked image",			1130, -30)
+		cv2.moveWindow("largest blob",			1130, 360)
+		cv2.moveWindow("seg mask & iseg mask",		1130, 680)
+		cv2.waitKey(0)
+		#cv2.destroyAllWindows()
 
+	return tree_centers
 
 
 
@@ -463,6 +518,9 @@ class SpreadDataset(Dataset):
 			SpreadDataset._data = self._load_data(data_dir)
 
 		self.data				= self._split_data(SpreadDataset._data, split, train_ratio, val_ratio, test_ratio)
+		if isinstance(self.data, tuple):
+			self.train_data, self.val_data, self.test_data = self.data
+			self.data = self.data[0]	# if split == "all", we get a tuple of train, val, test
 		self.color_palette			= read_color_palette(color_palette_path, invert_to_bgr=False)
 		self.color_palette_as_list		= [list(d.values())[0] for d in self.color_palette]
 		dbgprint(dataloader, LogLevel.TRACE, f"Loaded color palette: {self.color_palette}")
@@ -522,7 +580,7 @@ class SpreadDataset(Dataset):
 		print(' done!', flush=True)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
-		dbgprint(dataloader, LogLevel.INFO, f"\nLoaded {len(data)} images")
+		dbgprint(dataloader, LogLevel.INFO, f"Loaded {len(data)} images")
 
 		return data
 
@@ -531,7 +589,8 @@ class SpreadDataset(Dataset):
 		train_data, test_data = train_test_split(data,  test_size=test_ratio, random_state=42)
 		train_data, val_data  = train_test_split(train_data, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
 
-		dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")			# we already print this later
+		# we already print this later
+		dbgprint(dataloader, LogLevel.TRACE, f"Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")
 		
 		if split == "train":
 			return train_data
@@ -539,6 +598,10 @@ class SpreadDataset(Dataset):
 			return val_data
 		elif split == "test":
 			return test_data
+		elif split == "all":
+			return train_data, val_data, test_data		# for "external use only"
+		else:
+			raise Exception(f"Unknown split: {split}")
 
 	def __len__(self):
 		return len(self.data)
@@ -628,69 +691,12 @@ class SpreadDataset(Dataset):
 		# we want segmentation masks to be 480x270 to draw coords on trunks and then pick the color from small_masks (instance segmentation masks)
 		seg_mask = cv2.resize(seg_mask,   (small_mask.shape[1], small_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
 
+		print(f'img.shape: {img.shape}, imask.shape: {imask.shape}, seg_mask.shape: {seg_mask.shape}, small_mask.shape: {small_mask.shape}')
+
 		# TODO: discover why it doesn't work for this: /mnt/raid1/dataset/spread/spread/plantation/semantic_segmentation/Tree789_1721038462.png
-		tree_centers  = []
 		all_the_trees = get_all_trees(seg_mask, small_mask, px_threshold=50, px_threshold_perc=0.01)	# in the end we also set px_threshold, we want at least 50px masks
-		masked_iseg   = small_mask * np.expand_dims(seg_mask, axis=-1)
-
-		cv2.destroyAllWindows()
-
-		dbgprint(dataloader, LogLevel.INFO, f'Processing image: {ent["image_fn"]} with {len(all_the_trees)} trees')
-		for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
-
-			'''
-			largest_blob = extract_blobs_above_threshold(tree_mask,
-                                  threshold=5,
-                                  cluster_centroid_distance=50,
-                                  distant_blobs_threshold_px=50,
-                                  large_blob_threshold=100)
-
-			new_bbox = get_bbox(largest_blob)
-			x, y, w, h = new_bbox
-			'''
-			bbox = get_bbox(tree_mask)
-			x, y, w, h = bbox
-
-			tree_centers.append(center_point)
-			dbgprint(dataloader, LogLevel.DEBUG, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
-			img_small = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
-			img2      = draw_points_on_image(img_small, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
-			img2      = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
-			colored_tree_mask = cv2.bitwise_and(small_mask, small_mask, mask=tree_mask)
-
-			white_bg   = cv2.bitwise_not(np.zeros_like(img_small))
-			masked_img = cv2.bitwise_and(img_small,	img_small, mask=tree_mask)
-			inv_mask   = cv2.bitwise_not(tree_mask*255)
-			masked_bg  = cv2.bitwise_and(white_bg,	white_bg,  mask=inv_mask)
-			masked_img = cv2.bitwise_or(masked_img, masked_bg)
-
-
-			# Display the extracted tree mask
-			cv2.imshow("image_winid",			img2)
-			cv2.imshow("segmentation",			seg_mask   * 255)
-			cv2.imshow("instance",				small_mask)
-			cv2.imshow("colored_tree mask",			colored_tree_mask)
-			cv2.imshow("get_all_trees_winid",		tree_mask  * 255)
-			cv2.imshow("single tree trunk",			tree_trunk * 255)
-			cv2.imshow("largest blob",			largest_blob * 255)
-			cv2.imshow('seg mask & iseg mask',		masked_iseg)
-			#cv2.imshow("masked image",			img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
-			cv2.imshow("masked image",			masked_img)
-			cv2.setWindowTitle("get_all_trees_winid",	f"get_all_trees[{idx}] of {len(all_the_trees)}")
-			cv2.setWindowTitle("image_winid",		f"{Path(ent['image_fn']).parent.parent.name}/{Path(ent['image_fn']).name}")
-			cv2.moveWindow("image_winid",			 100, -30)
-			cv2.moveWindow("instance",			 100, 360)
-			cv2.moveWindow("segmentation",			 100, 680)
-			cv2.moveWindow("colored_tree mask",		 630, -30)
-			cv2.moveWindow("get_all_trees_winid",		 630, 360)
-			cv2.moveWindow("single tree trunk",		 630, 680)
-			cv2.moveWindow("masked image",			1130, -30)
-			cv2.moveWindow("largest blob",			1130, 360)
-			cv2.moveWindow("seg mask & iseg mask",		1130, 680)
-			cv2.waitKey(0)
-			#cv2.destroyAllWindows()
-
-
+		if self.debug_instance_segmentation_masks:
+			tree_centers = show_instances(ent["image_fn"], image, small_mask, seg_mask, all_the_trees)
 
 		if False:
 			tree_mask, tree_center = select_random_tree(seg_mask, small_mask)
