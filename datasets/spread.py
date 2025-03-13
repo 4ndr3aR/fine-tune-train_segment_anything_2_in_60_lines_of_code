@@ -177,21 +177,21 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 			#rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(x), int(y)), radius, color, thickness)
 			cv2.imwrite(f'/tmp/instance-seg-mask-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', rgb_tree_mask)
 			cv2.imwrite(f'/tmp/tree-trunk-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', tree_trunk)
-		dbgprint(dataloader, LogLevel.INFO,		f'get_all_trees() - Considering color: {color} - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc}')
+		dbgprint(dataloader, LogLevel.DEBUG, f'get_all_trees() - Considering color: {color} - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc}')
 		if nonzero < px_threshold or nonzero < px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
-			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE - condition 1')
+			dbgprint(dataloader, LogLevel.TRACE, f'get_all_trees() - nonzero = {nonzero} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE - condition 1')
 			continue
 		nonzero_tree_trunk = np.count_nonzero(tree_trunk)			# count the pixels in the current single tree mask, masked by all the trunks (logical AND)
-		print(f'get_all_trees() - nonzero_tree_trunk = {nonzero_tree_trunk}')
+		dbgprint(dataloader, LogLevel.TRACE, f'get_all_trees() - nonzero_tree_trunk = {nonzero_tree_trunk}')
 		if list(color) != subj_color:						# always keep that brown-beige color that is the main subject of the scene, whatever it takes
 			if nonzero_tree_trunk < px_threshold or nonzero_tree_trunk < px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0:
 				# here we basically throw away everything that has a trunk too small (because it's usually "visual noise", very little info in there)
-				dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - tree trunk mask = {nonzero_tree_trunk} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE - condition 2')
+				dbgprint(dataloader, LogLevel.TRACE, f'get_all_trees() - tree trunk mask = {nonzero_tree_trunk} - px_threshold = {px_threshold} - px_threshold_perc = {px_threshold_perc * iseg_mask.shape[0] * iseg_mask.shape[1] / 100.0} - DISCARDING TREE - condition 2')
 				continue
 			if nonzero_tree_trunk < trunk_to_leaves_ratio * nonzero:	# if the "leftover trunk mask" is less than 5% of the original single tree mask, discard
 				# usually this means it's not a tree... it's something else, usually background, grass or whatever. Sometimes it's a tree but for any reasons,
 				# it has no trunk (e.g. it's a bunch of large leaves in the foreground)
-				dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - tree trunk mask = {nonzero_tree_trunk} px - tree mask = {nonzero} px - DISCARDING TREE - condition 3')
+				dbgprint(dataloader, LogLevel.TRACE, f'get_all_trees() - tree trunk mask = {nonzero_tree_trunk} px - tree mask = {nonzero} px - DISCARDING TREE - condition 3')
 				continue
 	
 		'''
@@ -226,7 +226,7 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 			rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(center[1]), int(center[0])), 1, (0, 0, 255), -1)
 			cv2.imwrite(f'/tmp/instance-seg-mask-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', rgb_tree_mask)
 			center_point = (center[1], center[0])  # (row, col)
-			dbgprint(dataloader, LogLevel.INFO,	f'get_all_trees() - Found center point: {center_point}')
+			dbgprint(dataloader, LogLevel.DEBUG,	f'get_all_trees() - Found center point: {center_point}')
 		else:
 			center_point = None
 			dbgprint(dataloader, LogLevel.WARNING,	f'get_all_trees() - No coordinates found for tree with color: {color}')
@@ -241,7 +241,7 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 		# 6. Store result
 		results.append((tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob))
 
-	dbgprint(dataloader, LogLevel.FATAL, f'get_all_trees() - returned {len(results)} trees above the provided pixel threshold')
+	dbgprint(dataloader, LogLevel.DEBUG, f'get_all_trees() - returned {len(results)} trees above the provided pixel threshold')
 	return results
 
 
@@ -384,10 +384,10 @@ def extract_blobs_above_threshold(image,
 		area = stats[label_id, cv2.CC_STAT_AREA]
 
 		# Only consider blobs that meet the basic pixel threshold
-		dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold}')
+		dbgprint(dataloader, LogLevel.TRACE, f'Considering blob {label_id} with area {area} and threshold {threshold}')
 		all_blobs.append(area)
 		if area < threshold:
-			dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 1 - too small to be even considered')
+			dbgprint(dataloader, LogLevel.DEBUG, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 1 - too small to be even considered')
 			continue
 
 		# Always keep the largest cluster
@@ -402,7 +402,7 @@ def extract_blobs_above_threshold(image,
 		# Check distance criteria
 		if dist > cluster_centroid_distance and area < distant_blobs_threshold_px:
 			# Far away AND too small -> discard
-			dbgprint(dataloader, LogLevel.INFO, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 2 - far away (dist: {dist} px > {cluster_centroid_distance}) and too small (area: {area} < {distant_blobs_threshold_px} px)')
+			dbgprint(dataloader, LogLevel.DEBUG, f'Considering blob {label_id} with area {area} and threshold {threshold} - DISCARDED - reason 2 - far away (dist: {dist} px > {cluster_centroid_distance}) and too small (area: {area} < {distant_blobs_threshold_px} px)')
 			continue
 
 		# If it is a large blob, keep it regardless of distance
@@ -510,10 +510,10 @@ class SpreadDataset(Dataset):
 						"instance_fn"	 : imask_fn,
 						"segmentation_fn": smask_fn,
 						"colorid_fn"	 : colorid_fn,
-						"image"		 : cv2.imread(im_fn) if self.preload else None,
-						#"image"	 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
-						#"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1] if self.preload else None, # RGB plz
-						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,
+						#"image"		 : cv2.imread(im_fn) if self.preload else None,
+						"image"	 : cv2.imread(im_fn)[..., ::-1] if self.preload else None,	# RGB instead of BGRA plz
+						"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED)[..., ::-1] if self.preload else None, # RGB plz
+						#"instance"	 : cv2.imread(imask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,
 						"segmentation"	 : cv2.imread(smask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,            # Grayscale
 						"colorids"	 : read_colorid_file(colorid_fn),
 					})
@@ -652,7 +652,7 @@ class SpreadDataset(Dataset):
 			x, y, w, h = bbox
 
 			tree_centers.append(center_point)
-			dbgprint(dataloader, LogLevel.WARNING, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
+			dbgprint(dataloader, LogLevel.DEBUG, f'get_all_trees[{idx}] - tree mask shape: {tree_mask.shape} - center point: {center_point} - bbox: {bbox} - color: {color} - nonzero: {nonzero}')
 			img_small = cv2.resize(img, (small_mask.shape[1], small_mask.shape[0]))
 			img2      = draw_points_on_image(img_small, [list(reversed(center_point))], color=(0, 0, 255), radius=5)
 			img2      = cv2.rectangle(img2, (x, y), (w, h), color=(255, 0, 0), thickness=2)
