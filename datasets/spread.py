@@ -6,6 +6,8 @@ import random
 
 import numpy as np
 
+from pathlib import Path
+
 from sklearn.model_selection import train_test_split
 
 from torch.utils.data import Dataset
@@ -493,6 +495,7 @@ class SpreadDataset(Dataset):
 				continue
 
 			print(f'Reading {class_dir}...', end='', flush=True)
+			counter = 0
 			for idx, name in enumerate(os.listdir(rgb_dir)):
 				if idx % 1000 == 0:
 					print('.', end='', flush=True)
@@ -514,6 +517,8 @@ class SpreadDataset(Dataset):
 						"segmentation"	 : cv2.imread(smask_fn, cv2.IMREAD_UNCHANGED) if self.preload else None,            # Grayscale
 						"colorids"	 : read_colorid_file(colorid_fn),
 					})
+					counter += 1
+			print(f'{class_dir} has {counter} samples', flush=True)
 		print(' done!', flush=True)
 
 		#dbgprint(dataloader, LogLevel.INFO, f"Total number of entries: {len(self.data)}")
@@ -540,8 +545,15 @@ class SpreadDataset(Dataset):
 
 	def __getitem__(self, idx):
 		ent	= self.data[idx]
-		debug_specific_filename = True
+		debug_specific_filename = False
 		if debug_specific_filename:
+			# Ok, there are still a few bugs that "it would be nice" to fix, but they're quite rare cases.
+			# The first TODO is to drop altogether all the masks that are very wide and very short (e.g.
+			# "squareness index" is low). The second TODO is to is to look inside them and watch at the
+			# distribution of pixels... if there are pixels "all the way from left to right of the image",
+			# just drop it, it's some weird background. If there are pixels in just two or three blobs,
+			# they may be all trees, so split the mask in two or three or whatever, and return the blobs
+			# as separate instances.
 			debug_basepath		= '/mnt/raid1/dataset/spread/spread'
 			debug_category		= 'suburb-us'
 			debug_fn		= 'Tree26_1721909084.png'
@@ -552,8 +564,6 @@ class SpreadDataset(Dataset):
 			debug_fn		= 'Tree49220_1720578742.png'
 			debug_category		= 'plantation'
 			debug_fn		= 'Tree789_1721038462.png'
-			debug_category		= 'city-park'
-			debug_fn		= 'Tree4034_1720940143.png'
 			debug_category		= 'broadleaf-forest'
 			debug_fn		= 'Tree5396_1720256863.png'
 			debug_category		= 'redwood-forest'
@@ -563,10 +573,16 @@ class SpreadDataset(Dataset):
 			debug_category		= 'rainforest'
 			debug_fn		= 'Tree6174_1720699065.png'
 			debug_fn		= 'Tree3964_1720766396.png'
-
-			# /mnt/raid1/dataset/spread/spread/downtown-west/rgb/Tree115_1721227304.png
+			debug_fn		= 'Tree6508_1720707560.png'		# OMG watch also this! 🤣
 			debug_category		= 'downtown-west'
 			debug_fn		= 'Tree115_1721227304.png'
+			debug_fn		= 'Tree19_1721266439.png'
+			debug_fn		= 'Tree60_1721221577.png'
+			debug_fn		= 'Tree34_1721294691.png'		# watch this! 😂
+			debug_category		= 'city-park'
+			debug_fn		= 'Tree4034_1720940143.png'
+			debug_fn		= 'Tree4308_1720945515.png'		# TODO: this one is still hard to explain
+			debug_fn		= 'Tree1768_1720965873.png'		# TODO: this one also
 
 			ent["image_fn"]		= f'{debug_basepath}/{debug_category}/rgb/{debug_fn}'
 			ent["segmentation_fn"]	= f'{debug_basepath}/{debug_category}/semantic_segmentation/{debug_fn}'
@@ -619,6 +635,7 @@ class SpreadDataset(Dataset):
 
 		cv2.destroyAllWindows()
 
+		dbgprint(dataloader, LogLevel.INFO, f'Processing image: {ent["image_fn"]} with {len(all_the_trees)} trees')
 		for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):	# where bbox = (x, y, w, h)
 
 			'''
@@ -647,26 +664,29 @@ class SpreadDataset(Dataset):
 			masked_bg  = cv2.bitwise_and(white_bg,	white_bg,  mask=inv_mask)
 			masked_img = cv2.bitwise_or(masked_img, masked_bg)
 
+
 			# Display the extracted tree mask
-			cv2.imshow("image",			img2)
-			cv2.imshow("segmentation",		seg_mask   * 255)
-			cv2.imshow("instance",			small_mask)
-			cv2.imshow("colored_tree mask",		colored_tree_mask)
-			cv2.imshow(f"get_all_trees[{idx}]",	tree_mask  * 255)
-			cv2.imshow("single tree trunk",		tree_trunk * 255)
-			cv2.imshow("largest blob",		largest_blob * 255)
-			cv2.imshow('seg mask & iseg mask',	masked_iseg)
-			#cv2.imshow("masked image",		img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
-			cv2.imshow("masked image",		masked_img)
-			cv2.moveWindow("image"			, 100, -30)
-			cv2.moveWindow("instance"		, 100, 360)
-			cv2.moveWindow("segmentation"		, 100, 680)
-			cv2.moveWindow("colored_tree mask"	, 630, -30)
-			cv2.moveWindow(f"get_all_trees[{idx}]"	, 630, 360)
-			cv2.moveWindow("single tree trunk"	, 630, 680)
-			cv2.moveWindow("masked image"		, 1130, -30)
-			cv2.moveWindow("largest blob"		, 1130, 360)
-			cv2.moveWindow("seg mask & iseg mask"	, 1130, 680)
+			cv2.imshow("image_winid",			img2)
+			cv2.imshow("segmentation",			seg_mask   * 255)
+			cv2.imshow("instance",				small_mask)
+			cv2.imshow("colored_tree mask",			colored_tree_mask)
+			cv2.imshow("get_all_trees_winid",		tree_mask  * 255)
+			cv2.imshow("single tree trunk",			tree_trunk * 255)
+			cv2.imshow("largest blob",			largest_blob * 255)
+			cv2.imshow('seg mask & iseg mask',		masked_iseg)
+			#cv2.imshow("masked image",			img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
+			cv2.imshow("masked image",			masked_img)
+			cv2.setWindowTitle("get_all_trees_winid",	f"get_all_trees[{idx}] of {len(all_the_trees)}")
+			cv2.setWindowTitle("image_winid",		f"{Path(ent['image_fn']).parent.parent.name}/{Path(ent['image_fn']).name}")
+			cv2.moveWindow("image_winid",			 100, -30)
+			cv2.moveWindow("instance",			 100, 360)
+			cv2.moveWindow("segmentation",			 100, 680)
+			cv2.moveWindow("colored_tree mask",		 630, -30)
+			cv2.moveWindow("get_all_trees_winid",		 630, 360)
+			cv2.moveWindow("single tree trunk",		 630, 680)
+			cv2.moveWindow("masked image",			1130, -30)
+			cv2.moveWindow("largest blob",			1130, 360)
+			cv2.moveWindow("seg mask & iseg mask",		1130, 680)
 			cv2.waitKey(0)
 			#cv2.destroyAllWindows()
 
