@@ -67,7 +67,7 @@ def write_coco_annotations(
 	ratio_threshold=2.0,   # for counting the number of bboxes with width/height > ratio_threshold
 	px_threshold=50,
 	px_threshold_perc=0.01,
-	debug_instance_segmentation_masks=True,
+	debug_instance_segmentation_masks=False,
 ):
 	"""
 	Writes COCO-style JSON files (train.json, val.json, test.json) for a dataset
@@ -313,6 +313,11 @@ def write_coco_annotations(
 			#print_stats(stats_by_subcat, ratio_threshold)
 			if entry_idx % 1000 == 0:
 				print(f'.', end="", flush=True)
+			if debug or False:
+				if entry_idx % 10 == 0:
+					print(f'#', end="", flush=True)
+				if entry_idx % 100 == 0 and entry_idx > 0:
+					break
 
 	print(f'Done!\n', flush=True)
 

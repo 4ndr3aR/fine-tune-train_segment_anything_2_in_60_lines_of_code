@@ -510,7 +510,7 @@ class SpreadDataset(Dataset):
 		self.color_palette_path			= color_palette_path
 		self.color_palette			= None
 		self.color_palette_as_list		= None
-		self.debug_instance_segmentation_masks	= False
+		self.debug_instance_segmentation_masks	= True
 		self.debug_semantic_segmentation_masks	= False
 		self.debug_input_points			= False
 
@@ -608,7 +608,7 @@ class SpreadDataset(Dataset):
 
 	def __getitem__(self, idx):
 		ent	= self.data[idx]
-		debug_specific_filename = False
+		debug_specific_filename = True
 		if debug_specific_filename:
 			# Ok, there are still a few bugs that "it would be nice" to fix, but they're quite rare cases.
 			# The first TODO is to drop altogether all the masks that are very wide and very short (e.g.
@@ -631,12 +631,7 @@ class SpreadDataset(Dataset):
 			debug_fn		= 'Tree5396_1720256863.png'
 			debug_category		= 'redwood-forest'
 			debug_fn		= 'Tree1658_1720853346.png'
-			debug_category		= 'redwood-forest'
 			debug_fn		= 'Tree2880_1720832884.png'
-			debug_category		= 'rainforest'
-			debug_fn		= 'Tree6174_1720699065.png'
-			debug_fn		= 'Tree3964_1720766396.png'
-			debug_fn		= 'Tree6508_1720707560.png'		# OMG watch also this! 🤣
 			debug_category		= 'downtown-west'
 			debug_fn		= 'Tree115_1721227304.png'
 			debug_fn		= 'Tree19_1721266439.png'
@@ -646,6 +641,10 @@ class SpreadDataset(Dataset):
 			debug_fn		= 'Tree4034_1720940143.png'
 			debug_fn		= 'Tree4308_1720945515.png'		# TODO: this one is still hard to explain
 			debug_fn		= 'Tree1768_1720965873.png'		# TODO: this one also
+			debug_category		= 'rainforest'
+			debug_fn		= 'Tree3964_1720766396.png'
+			debug_fn		= 'Tree6508_1720707560.png'		# OMG watch also this! 🤣
+			debug_fn		= 'Tree6174_1720699065.png'
 
 			ent["image_fn"]		= f'{debug_basepath}/{debug_category}/rgb/{debug_fn}'
 			ent["segmentation_fn"]	= f'{debug_basepath}/{debug_category}/semantic_segmentation/{debug_fn}'
@@ -693,10 +692,17 @@ class SpreadDataset(Dataset):
 
 		print(f'img.shape: {img.shape}, imask.shape: {imask.shape}, seg_mask.shape: {seg_mask.shape}, small_mask.shape: {small_mask.shape}')
 
+		tree_centers  = []
+		tree_mask     = None
+
 		# TODO: discover why it doesn't work for this: /mnt/raid1/dataset/spread/spread/plantation/semantic_segmentation/Tree789_1721038462.png
 		all_the_trees = get_all_trees(seg_mask, small_mask, px_threshold=50, px_threshold_perc=0.01)	# in the end we also set px_threshold, we want at least 50px masks
 		if self.debug_instance_segmentation_masks:
-			tree_centers = show_instances(ent["image_fn"], image, small_mask, seg_mask, all_the_trees)
+			tree_centers = show_instances(ent["image_fn"], img, small_mask, seg_mask, all_the_trees)
+		else:
+			idx = random.randint(0, len(all_the_trees) - 1)
+			tree_centers = all_the_trees[idx][1]
+			tree_mask    = all_the_trees[idx][0]
 
 		if False:
 			tree_mask, tree_center = select_random_tree(seg_mask, small_mask)
