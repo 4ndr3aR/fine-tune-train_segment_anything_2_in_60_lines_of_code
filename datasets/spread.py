@@ -363,7 +363,7 @@ def extract_blobs_above_threshold(image,
 
 	# Handle case of no foreground components
 	if num_labels <= 1:
-		return np.zeros_like(image, dtype=original_dtype)
+		return np.zeros_like(image, dtype=original_dtype), []
 
 	# Find the label with the largest area (excluding background = label 0)
 	largest_label = None
@@ -376,7 +376,7 @@ def extract_blobs_above_threshold(image,
 
 	# If even the largest label doesn't meet the basic threshold, return empty
 	if largest_area < threshold:
-		return np.zeros_like(image, dtype=original_dtype)
+		return np.zeros_like(image, dtype=original_dtype), []
 
 	# Get centroid of the largest cluster
 	main_centroid = centroids[largest_label]  # [y_center, x_center]
@@ -420,7 +420,7 @@ def extract_blobs_above_threshold(image,
 
 	# Return blank mask if no components are kept
 	if not kept_labels:
-		return np.zeros_like(image, dtype=original_dtype)
+		return np.zeros_like(image, dtype=original_dtype), []
 
 	# Create combined mask of all kept components
 	mask = np.isin(labels, kept_labels)
