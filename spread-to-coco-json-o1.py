@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
 
-'''
-import random
-
-from sklearn.model_selection import train_test_split
-
-from torch.utils.data import Dataset
-
-from instance_seg_loss import read_color_palette, read_colorid_file
-
-from utils import draw_points_on_image
-'''
-
 import os
 import json
 import time
@@ -28,9 +16,6 @@ from dbgprint import dbgprint
 from dbgprint import *
 
 from datasets.spread import SpreadDataset, get_all_trees, get_bbox, show_instances
-
-# Suppose we have this function from your code that returns: 
-# [(tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob), ...]
 
 def print_stats(stats_by_subcat, ratio_threshold):
 	# Finally, print the statistics
@@ -143,7 +128,7 @@ def derive_subcategory_from_path(img_path: str) -> str:
 	# Or you can parse any other convention you have.
 
 	p = Path(img_path)
-	# Possibly the subcategory is the parent folder
+	# The subcategory is the grandparent folder (e.g. suburb/rgb/Tree....png
 	subcat = p.parent.parent.name  
 	return subcat
 
@@ -186,19 +171,14 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 				debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug)
 		if debug and entry_idx % 100 == 0 and entry_idx > 0:
 			break
-	#print(f'parallelize_train_valid_test_processing[{split_name}]: {image_id_counters[split_name] = }')
-	#print(f'parallelize_train_valid_test_processing[{split_name}]: {annotation_id_counters[split_name] = }')
 
 	print(f'\nParallel processing - {split_name} completed - processed {image_id_counters[split_name]} images and {annotation_id_counters[split_name]} annotations\n')
-	#print(f'stats_by_subcat[split_name]: {stats_by_subcat[split_name]}')
 
-	#return splits_coco[split_name], stats_by_subcat[split_name],
-	#return split_name, image_id_counters[split_name], annotation_id_counters[split_name]
 	return split_name, splits_coco[split_name], stats_by_subcat[split_name], image_id_counters[split_name], annotation_id_counters[split_name]
 
 def process_entry(entry_idx, entry, split_name,
 			splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon',
+			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=False,
 			debug_instance_segmentation_masks=False, debug=False):
 	img_fn  = entry["image_fn"]
 	seg_fn  = entry["segmentation_fn"]
@@ -239,11 +219,10 @@ def process_entry(entry_idx, entry, split_name,
 	seg_mask  = cv2.imread(seg_fn , cv2.IMREAD_GRAYSCALE)
 	iseg_mask = cv2.imread(iseg_fn, cv2.IMREAD_UNCHANGED)  # possibly 3-channel or single channel, adapt
 
-	'''
-	# ok, MaskDINO assert because img.shape[:2] == (self.h, self.w) in transform.py line 113
-	# masks are 480x270 while RGB is 960x540, let's upscale everything
-	iseg_mask = cv2.resize(iseg_mask,   (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
-	'''
+	if upscale_masks:	# because the higher the resolution, the more annotations one can extract
+		# ok, MaskDINO assert because img.shape[:2] == (self.h, self.w) in transform.py line 113
+		# masks are 480x270 while RGB is 960x540, let's upscale everything (mandatory for encoding='bitmasks')
+		iseg_mask = cv2.resize(iseg_mask,   (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
 
 	# we want segmentation masks to be 480x270 to draw coords on trunks and then pick the color from instance segmentation masks
 	seg_mask  = cv2.resize(seg_mask,   (iseg_mask.shape[1], iseg_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -257,7 +236,6 @@ def process_entry(entry_idx, entry, split_name,
 
 	# If your instance mask is color-coded, you can keep it or transform to labels, etc.
 	# We'll treat iseg_mask as "small_mask"
-	#small_mask = (iseg_mask > 0).astype(np.uint8)
 	small_mask = iseg_mask
 
 	# Call get_all_trees(...) to get your trees
@@ -272,7 +250,6 @@ def process_entry(entry_idx, entry, split_name,
 		show_instances(img_fn, img, small_mask, seg_mask, all_the_trees)
 
 	# For each tree in this image, create a COCO 'annotation' record
-	#for (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in all_the_trees:
 	for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):
 		# bbox is (x, y, w, h)
 		x, y, w, h = bbox
@@ -300,8 +277,7 @@ def process_entry(entry_idx, entry, split_name,
 				contour = contour.reshape(-1, 2)
 				# Skip contours with less than 3 points (can't form a polygon)
 				if len(contour) < 3:
-					#skipped_annotations += 1
-					#print(f"Warning: mask-to-poly subroutine skipping annotation {friendly_fn}:{idx} because contour has less than 3 points.")
+					#print(f"Warning: mask-to-poly subroutine skipping contour {friendly_fn}:{idx}-{jdx} because it has less than 3 points.")
 					continue
 				# Flatten the contour points into a list [x1,y1,x2,y2,...]
 				polygon = contour.flatten().tolist()
@@ -364,7 +340,6 @@ def process_entry(entry_idx, entry, split_name,
 	stats_by_subcat[split_name][subcat]["skipped_annotations"].append({friendly_fn: skipped_annotations}) if skipped_annotations > 0 else None
 
 	# Print the stats
-	#print_stats(stats_by_subcat, ratio_threshold)
 	if entry_idx % 1000 == 0:
 		print(f'.', end="", flush=True)
 	if debug:
@@ -399,37 +374,6 @@ def write_coco_annotations(
 	# Prepare output directory
 	os.makedirs(output_dir, exist_ok=True)
 
-
-	'''
-	def parallel_image_check(file_list, num_cores=48):
-		"""
-		Parallelizes the image shape check across multiple cores.
-		"""
-		
-		start_time =  time.time()
-		
-		with mp.Pool(processes=num_cores) as pool:
-			results = pool.map(double_check_image_size, file_list)
-	
-		# Filter out the valid images (None results) and collect the invalid ones
-		invalid_images = [result for result in results if result is not None]
-		
-		elapsed_time =  time.time() - start_time
-	
-		# Print the invalid images and their shapes
-		for fn, shape in invalid_images:
-			print(f'fn: {fn} - {shape}')
-		
-		print(f'Elapsed time: {elapsed_time:.2f} seconds')
-	
-		return invalid_images  # Return the list of invalid images for further processing if needed
-	'''
-
-
-
-
-
-
 	'''
 	# Iterate over each split
 	for split_name in ["train", "val", "test"]:
@@ -444,8 +388,6 @@ def write_coco_annotations(
 				break
 	'''
 
-
-
 	start_time =  time.time()
 	
 	max_processes = 1 if debug_instance_segmentation_masks else 3
@@ -453,16 +395,12 @@ def write_coco_annotations(
 	with mp.Pool(processes=max_processes) as pool:
 		# N = pool.map(partial(func, b=second_arg), a_args)
 		# https://stackoverflow.com/a/5443941/1396334
-		#results = pool.map(parallelize_train_valid_test_processing, ["train", "val", "test"], dataset_splits, splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat, debug)
 		results = pool.map(partial(parallelize_train_valid_test_processing,
 					dataset_splits=dataset_splits, splits_coco=splits_coco, image_id_counters=image_id_counters,
 					annotation_id_counters=annotation_id_counters, stats_by_subcat=stats_by_subcat,
 					ratio_threshold=ratio_threshold, px_threshold=px_threshold, px_threshold_perc=px_threshold_perc,
 					debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug), ["train", "val", "test"])
 
-	#print(f'Results: {results}')
-	#for split_name in ["train", "val", "test"]:
-	#return split_name, splits_coco[split_name], stats_by_subcat[split_name], image_id_counters[split_name], annotation_id_counters[split_name]
 	for res in results:
 		res_split_name, res_splits_coco, res_stats_by_subcat, res_image_id_counters, res_annotation_id_counters = res
 		print(f'Processing result: {res_split_name:5s} - with {res_image_id_counters} images and {res_annotation_id_counters} annotations')
@@ -471,7 +409,6 @@ def write_coco_annotations(
 	
 	elapsed_time =  time.time() - start_time
 	print(f"Done! Elapsed time: {elapsed_time:.2f} seconds\n\n", flush=True)
-
 
 	# Now write out each split's result
 	for split_name in ["train", "val", "test"]:
@@ -491,7 +428,6 @@ def write_coco_annotations(
 
 	print_stats(stats_by_subcat, ratio_threshold)
 
-
 # -----------------------------------------------------------------------------
 # Example usage:
 if __name__ == "__main__":
@@ -505,30 +441,6 @@ if __name__ == "__main__":
 	dataset  = SpreadDataset(data_dir, split="all", preload=False)
 	train, valid, test = dataset.train_data, dataset.val_data, dataset.test_data
 	dbgprint(main, LogLevel.INFO, f"Loaded {len(train)}, {len(valid)}, {len(test)} images. Total: {len(train) +  len(valid) + len(test)} images.")
-
-	'''
-	your_dataset_splits = {
-		"train": [
-			{
-				"image_fn": "data/birch-forest/img1.jpg",
-				"segmentation_fn": "data/birch-forest/seg1.png",
-				"instance_fn": "data/birch-forest/inst1.png"
-			},
-			{
-				"image_fn": "data/broadleaf-forest/img2.jpg",
-				"segmentation_fn": "data/broadleaf-forest/seg2.png",
-				"instance_fn": "data/broadleaf-forest/inst2.png"
-			},
-			# ...
-		],
-		"val": [
-			# ...
-		],
-		"test": [
-			# ...
-		]
-	}
-	'''
 
 	# Call the function
 	write_coco_annotations(
