@@ -40,14 +40,16 @@ def print_stats(stats_by_subcat, ratio_threshold):
 			continue
 		print(f"\n--- {split_name.upper()} split ---")
 		for subcat, st in stats_by_subcat[split_name].items():
-			n_files		= st["n_files"]
-			n_bboxes	= st["n_bboxes"]
-			avg_bbox_area	= (st["sum_bbox_area"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_mask_px	= (st["sum_mask_px"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_largest_blob= (st["sum_largest_blob"] / n_bboxes) if n_bboxes > 0 else 0.0
-			ratio_exceed	= st["count_ratio_exceed"]
-			avg_density	= (st["sum_density"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_tree_trunk	= (st["sum_tree_trunk"] / n_bboxes) if n_bboxes > 0 else 0.0
+			n_files             = st["n_files"]
+			n_bboxes            = st["n_bboxes"]
+			avg_bbox_area       = (st["sum_bbox_area"] / n_bboxes) if n_bboxes > 0 else 0.0
+			avg_mask_px         = (st["sum_mask_px"] / n_bboxes) if n_bboxes > 0 else 0.0
+			avg_largest_blob    = (st["sum_largest_blob"] / n_bboxes) if n_bboxes > 0 else 0.0
+			ratio_exceed        = st["count_ratio_exceed"]
+			avg_density         = (st["sum_density"] / n_bboxes) if n_bboxes > 0 else 0.0
+			avg_tree_trunk      = (st["sum_tree_trunk"] / n_bboxes) if n_bboxes > 0 else 0.0
+			skipped_images      = st["skipped_images"]
+			skipped_annotations = st["skipped_annotations"]
 			# If we wanted average W x H specifically
 			#   we can store the average of W and average of H, or just do sqrt of avg_bbox_area, etc.
 			#   But let's do average W*H as is, which is avg_bbox_area above.
@@ -61,7 +63,9 @@ def print_stats(stats_by_subcat, ratio_threshold):
 				f"Avg LargestBlob: {avg_largest_blob:8.2f}, "
 				f"Count Ratio>({ratio_threshold}): {ratio_exceed:5d}, "
 				f"Avg Density: {avg_density:6.3f}, "
-				f"Avg TreeTrunk px: {avg_tree_trunk:8.2f}"
+				f"Avg TreeTrunk px: {avg_tree_trunk:8.2f}, "
+				f"Skipped images: {skipped_images}, "
+				f"Skipped annotations: {skipped_annotations}"
 			)
 
 
@@ -158,7 +162,9 @@ def init_subcat_stats(stats_dict, subcat):
 			# We also keep track of total width and height separately 
 			# to compute average WxH if needed
 			"sum_w": 0.0,
-			"sum_h": 0.0
+			"sum_h": 0.0,
+			"skipped_images": [],
+			"skipped_annotations": [],
 		}
 
 def parallelize_train_valid_test_processing(split_name, dataset_splits,
@@ -177,7 +183,7 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 		process_entry(entry_idx, entry, split_name,
 				splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
 				ratio_threshold, px_threshold, px_threshold_perc,
-				debug=debug)
+				debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug)
 		if debug and entry_idx % 100 == 0 and entry_idx > 0:
 			break
 	#print(f'parallelize_train_valid_test_processing[{split_name}]: {image_id_counters[split_name] = }')
@@ -192,11 +198,15 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 
 def process_entry(entry_idx, entry, split_name,
 			splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-			ratio_threshold, px_threshold, px_threshold_perc,
+			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon',
 			debug_instance_segmentation_masks=False, debug=False):
 	img_fn  = entry["image_fn"]
 	seg_fn  = entry["segmentation_fn"]
 	iseg_fn = entry["instance_fn"]
+
+	friendly_fn = f'{Path(img_fn).parent.parent.name}/{Path(img_fn).name}'
+
+	skipped_annotations = 0
 
 	# Read your image to get height/width for COCO 'images' entry
 	# (This is important for the COCO format)
@@ -204,7 +214,8 @@ def process_entry(entry_idx, entry, split_name,
 	# but here's the straightforward approach:
 	img = cv2.imread(img_fn)
 	if img is None:
-		print(f"Warning: could not read {img_fn}. Skipping.")
+		print(f"Warning: could not read {friendly_fn}. Skipping.")
+		stats_by_subcat[split_name][subcat]["skipped_images"].append(friendly_fn)
 		return
 
 	height, width = img.shape[:2]
@@ -228,9 +239,11 @@ def process_entry(entry_idx, entry, split_name,
 	seg_mask  = cv2.imread(seg_fn , cv2.IMREAD_GRAYSCALE)
 	iseg_mask = cv2.imread(iseg_fn, cv2.IMREAD_UNCHANGED)  # possibly 3-channel or single channel, adapt
 
+	'''
 	# ok, MaskDINO assert because img.shape[:2] == (self.h, self.w) in transform.py line 113
 	# masks are 480x270 while RGB is 960x540, let's upscale everything
 	iseg_mask = cv2.resize(iseg_mask,   (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+	'''
 
 	# we want segmentation masks to be 480x270 to draw coords on trunks and then pick the color from instance segmentation masks
 	seg_mask  = cv2.resize(seg_mask,   (iseg_mask.shape[1], iseg_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -238,7 +251,8 @@ def process_entry(entry_idx, entry, split_name,
 	dbgprint(dataloader, LogLevel.TRACE, f'{seg_mask.shape = } - {iseg_mask.shape = } - {seg_mask.dtype = } - {iseg_mask.dtype = }')
 
 	if seg_mask is None or iseg_mask is None:
-		print(f"Warning: could not read seg or instance mask for {img_fn}. Skipping.")
+		print(f"Warning: could not read seg or instance mask for {friendly_fn}. Skipping.")
+		stats_by_subcat[split_name][subcat]["skipped_images"].append(friendly_fn)
 		return
 
 	# If your instance mask is color-coded, you can keep it or transform to labels, etc.
@@ -257,20 +271,49 @@ def process_entry(entry_idx, entry, split_name,
 	if debug_instance_segmentation_masks:
 		show_instances(img_fn, img, small_mask, seg_mask, all_the_trees)
 
-
 	# For each tree in this image, create a COCO 'annotation' record
-	for (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in all_the_trees:
+	#for (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in all_the_trees:
+	for idx, (tree_mask, center_point, bbox, color, nonzero, tree_trunk, largest_blob) in enumerate(all_the_trees):
 		# bbox is (x, y, w, h)
 		x, y, w, h = bbox
-		# The mask is binary (0/1 or 0/255).  We convert to RLE.
-		# We'll assume it's a 2D mask with the same shape as seg_mask.
-		# Make sure it's Fortran-contiguous for pycocotools
-		# If tree_mask is boolean array of shape [H, W], do:
-		encoded_mask = mask_utils.encode(
-			np.asfortranarray(tree_mask.astype(np.uint8))
-		)
-		# Convert byte-string to ascii so it can be serialized in json
-		encoded_mask["counts"] = encoded_mask["counts"].decode("ascii")
+		if encoding == 'bitmask':		# not compatible with Detectron2/MaskDINO because of data augmentation
+			# The mask is binary (0/1 or 0/255).  We convert to RLE.
+			# We'll assume it's a 2D mask with the same shape as seg_mask.
+			# Make sure it's Fortran-contiguous for pycocotools
+			# If tree_mask is boolean array of shape [H, W], do:
+			encoded_mask = mask_utils.encode(
+				np.asfortranarray(tree_mask.astype(np.uint8))
+			)
+			# Convert byte-string to ascii so it can be serialized in json
+			encoded_mask["counts"] = encoded_mask["counts"].decode("ascii")
+		elif encoding == 'polygon':
+			# Convert the binary mask to uint8 format (0s and 1s)
+			mask_uint8 = tree_mask.astype(np.uint8)
+			# Find contours using OpenCV
+			contours, _ = cv2.findContours(mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+			
+			segmentation = []
+			for jdx, contour in enumerate(contours):
+				if idx == 0 and debug_instance_segmentation_masks:
+					print(f'[{idx}] - [{jdx}] - {contour.shape = } - {contour = }')
+				# Reshape contour to (N, 2) array where N is the number of points
+				contour = contour.reshape(-1, 2)
+				# Skip contours with less than 3 points (can't form a polygon)
+				if len(contour) < 3:
+					#skipped_annotations += 1
+					#print(f"Warning: mask-to-poly subroutine skipping annotation {friendly_fn}:{idx} because contour has less than 3 points.")
+					continue
+				# Flatten the contour points into a list [x1,y1,x2,y2,...]
+				polygon = contour.flatten().tolist()
+				segmentation.append(polygon)
+			
+			# Skip this annotation if no valid polygons were found
+			if not segmentation:
+				skipped_annotations += 1
+				print(f"Warning: mask-to-poly subroutine skipping annotation {friendly_fn}:{idx} because no valid polygons were found.")
+				continue
+		else:
+			print(f"Unknown encoding: {encoding}")
 
 		# Build the annotation
 		this_annotation_id = annotation_id_counters[split_name]
@@ -284,7 +327,7 @@ def process_entry(entry_idx, entry, split_name,
 			"id": this_annotation_id,
 			"image_id": this_image_id,
 			"category_id": 1,  # "tree"
-			"segmentation": encoded_mask,
+			"segmentation": encoded_mask if encoding == 'bitmask' else segmentation,
 			"bbox": [int(x), int(y), int(w), int(h)],
 			"area": area,
 			"iscrowd": 0
@@ -317,6 +360,8 @@ def process_entry(entry_idx, entry, split_name,
 		# For average bounding box dimension if you want separate W and H
 		stats_by_subcat[split_name][subcat]["sum_w"] += w
 		stats_by_subcat[split_name][subcat]["sum_h"] += h
+
+	stats_by_subcat[split_name][subcat]["skipped_annotations"].append({friendly_fn: skipped_annotations}) if skipped_annotations > 0 else None
 
 	# Print the stats
 	#print_stats(stats_by_subcat, ratio_threshold)
@@ -403,7 +448,9 @@ def write_coco_annotations(
 
 	start_time =  time.time()
 	
-	with mp.Pool(processes=3) as pool:
+	max_processes = 1 if debug_instance_segmentation_masks else 3
+
+	with mp.Pool(processes=max_processes) as pool:
 		# N = pool.map(partial(func, b=second_arg), a_args)
 		# https://stackoverflow.com/a/5443941/1396334
 		#results = pool.map(parallelize_train_valid_test_processing, ["train", "val", "test"], dataset_splits, splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat, debug)
@@ -439,7 +486,7 @@ def write_coco_annotations(
 		}
 		json_filename = os.path.join(output_dir, f"{split_name}.json")
 		with open(json_filename, "w") as f:
-			json.dump(out_coco, f, indent=2)
+			json.dump(out_coco, f)
 		print(f"Wrote {json_filename}")
 
 	print_stats(stats_by_subcat, ratio_threshold)
@@ -490,17 +537,7 @@ if __name__ == "__main__":
 		ratio_threshold=2.0,
 		px_threshold=50,
 		px_threshold_perc=0.01,
-		debug=True,
+		debug=False,
 		debug_instance_segmentation_masks=False,
 	)
-
-
-
-
-
-
-
-
-
-
 

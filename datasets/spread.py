@@ -114,6 +114,8 @@ def find_valid_centroid(mask):
 
     # Otherwise, use the contours to find the nearest point inside the mask
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)		# same
+    #contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)	# same again
 
     # Find the point on the contour closest to the raw centroid
     min_dist = float("inf")
@@ -459,7 +461,17 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		inv_mask   = cv2.bitwise_not(tree_mask*255)
 		masked_bg  = cv2.bitwise_and(white_bg,	white_bg,  mask=inv_mask)
 		masked_img = cv2.bitwise_or(masked_img, masked_bg)
-	
+
+		mask_uint8 = tree_mask.astype(np.uint8)
+		# Find contours using OpenCV
+		contours,_ = cv2.findContours(mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+		'''
+		for cnt in contours:
+			img_cont = cv2.drawContours(img2, [cnt], -1, color=(255,0,0), thickness=3)	
+			cv2.imshow("mask contours (COCO)",		img_cont)
+			cv2.waitKey(0)
+		'''
 	
 		# Display the extracted tree mask
 		cv2.imshow("image_winid",			img2)
@@ -472,17 +484,20 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		cv2.imshow('seg mask & iseg mask',		masked_iseg)
 		#cv2.imshow("masked image",			img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
 		cv2.imshow("masked image",			masked_img)
+		img_cont   = cv2.drawContours(img2, contours, -1, color=(0,255,0), thickness=3)
+		cv2.imshow("mask contours (COCO)",		img_cont)
 		cv2.setWindowTitle("get_all_trees_winid",	f"get_all_trees[{idx}] of {len(all_the_trees)}")
 		cv2.setWindowTitle("image_winid",		f"{Path(image_fn).parent.parent.name}/{Path(image_fn).name}")
-		cv2.moveWindow("image_winid",			 100, -30)
-		cv2.moveWindow("instance",			 100, 360)
-		cv2.moveWindow("segmentation",			 100, 680)
-		cv2.moveWindow("colored_tree mask",		 630, -30)
-		cv2.moveWindow("get_all_trees_winid",		 630, 360)
-		cv2.moveWindow("single tree trunk",		 630, 680)
-		cv2.moveWindow("masked image",			1130, -30)
-		cv2.moveWindow("largest blob",			1130, 360)
-		cv2.moveWindow("seg mask & iseg mask",		1130, 680)
+		cv2.moveWindow("image_winid",			   0, -30)
+		cv2.moveWindow("instance",			   0, 360)
+		cv2.moveWindow("segmentation",			   0, 680)
+		cv2.moveWindow("colored_tree mask",		 490, -30)
+		cv2.moveWindow("get_all_trees_winid",		 490, 360)
+		cv2.moveWindow("single tree trunk",		 490, 680)
+		cv2.moveWindow("masked image",			 980, -30)
+		cv2.moveWindow("largest blob",			 980, 360)
+		cv2.moveWindow("seg mask & iseg mask",		 980, 680)
+		cv2.moveWindow("mask contours (COCO)",		1470, -30)
 		cv2.waitKey(0)
 		#cv2.destroyAllWindows()
 
