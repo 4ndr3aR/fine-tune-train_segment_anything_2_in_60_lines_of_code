@@ -27,12 +27,13 @@ def print_stats(stats_by_subcat, ratio_threshold):
 		for subcat, st in stats_by_subcat[split_name].items():
 			n_files             = st["n_files"]
 			n_bboxes            = st["n_bboxes"]
-			avg_bbox_area       = (st["sum_bbox_area"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_mask_px         = (st["sum_mask_px"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_largest_blob    = (st["sum_largest_blob"] / n_bboxes) if n_bboxes > 0 else 0.0
+			avg_bbox_area       = (st["sum_bbox_area"]	/ n_bboxes) if n_bboxes > 0 else 0.0
+			avg_mask_px         = (st["sum_mask_px"]	/ n_bboxes) if n_bboxes > 0 else 0.0
+			avg_largest_blob    = (st["sum_largest_blob"]	/ n_bboxes) if n_bboxes > 0 else 0.0
 			ratio_exceed        = st["count_ratio_exceed"]
-			avg_density         = (st["sum_density"] / n_bboxes) if n_bboxes > 0 else 0.0
-			avg_tree_trunk      = (st["sum_tree_trunk"] / n_bboxes) if n_bboxes > 0 else 0.0
+			avg_density         = (st["sum_density"]	/ n_bboxes) if n_bboxes > 0 else 0.0
+			avg_tree_trunk      = (st["sum_tree_trunk"]	/ n_bboxes) if n_bboxes > 0 else 0.0
+			avg_poly_size       = (st["sum_poly_size"]	/ n_bboxes) if n_bboxes > 0 else 0.0
 			skipped_images      = st["skipped_images"]
 			skipped_annotations = st["skipped_annotations"]
 			# If we wanted average W x H specifically
@@ -49,6 +50,7 @@ def print_stats(stats_by_subcat, ratio_threshold):
 				f"Count Ratio>({ratio_threshold}): {ratio_exceed:5d}, "
 				f"Avg Density: {avg_density:6.3f}, "
 				f"Avg TreeTrunk px: {avg_tree_trunk:8.2f}, "
+				f"Avg Polygon Size (pt): {avg_poly_size:8.2f}, "
 				f"Skipped images: {skipped_images}, "
 				f"Skipped annotations: {skipped_annotations}"
 			)
@@ -144,6 +146,7 @@ def init_subcat_stats(stats_dict, subcat):
 			"count_ratio_exceed": 0,
 			"sum_density": 0.0,
 			"sum_tree_trunk": 0.0,
+			"sum_poly_size": 0.0,
 			# We also keep track of total width and height separately 
 			# to compute average WxH if needed
 			"sum_w": 0.0,
@@ -154,7 +157,7 @@ def init_subcat_stats(stats_dict, subcat):
 
 def parallelize_train_valid_test_processing(split_name, dataset_splits,
 						splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-						ratio_threshold, px_threshold, px_threshold_perc,
+						ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
 						debug_instance_segmentation_masks=False, debug=False):
 	# At least we can parallelize this for loop to spend just 70% of the time
 	# on it instead of 100% (because of the 70/20/10 split)
@@ -167,7 +170,7 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 	for entry_idx, entry in enumerate(entries):
 		process_entry(entry_idx, entry, split_name,
 				splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-				ratio_threshold, px_threshold, px_threshold_perc,
+				ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
 				debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug)
 		if debug and entry_idx % 100 == 0 and entry_idx > 0:
 			break
@@ -178,7 +181,7 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 
 def process_entry(entry_idx, entry, split_name,
 			splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=False,
+			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
 			debug_instance_segmentation_masks=False, debug=False):
 	img_fn  = entry["image_fn"]
 	seg_fn  = entry["segmentation_fn"]
@@ -270,6 +273,7 @@ def process_entry(entry_idx, entry, split_name,
 			contours, _ = cv2.findContours(mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 			
 			segmentation = []
+			poly_size = 0
 			for jdx, contour in enumerate(contours):
 				if idx == 0 and debug_instance_segmentation_masks:
 					print(f'[{idx}] - [{jdx}] - {contour.shape = } - {contour = }')
@@ -282,6 +286,8 @@ def process_entry(entry_idx, entry, split_name,
 				# Flatten the contour points into a list [x1,y1,x2,y2,...]
 				polygon = contour.flatten().tolist()
 				segmentation.append(polygon)
+				poly_size += len(polygon)
+			dbgprint(dataloader, LogLevel.TRACE, f'Found {poly_size} points in {friendly_fn}:{idx}')
 			
 			# Skip this annotation if no valid polygons were found
 			if not segmentation:
@@ -324,6 +330,7 @@ def process_entry(entry_idx, entry, split_name,
 		# sum of tree trunk area
 		tk_area = float(np.sum(tree_trunk)) if tree_trunk is not None else 0.0
 		stats_by_subcat[split_name][subcat]["sum_tree_trunk"] += tk_area
+		stats_by_subcat[split_name][subcat]["sum_poly_size"] += poly_size if encoding == 'polygon' else 0
 
 		# Count ratio
 		if h > 0 and (w / h) > ratio_threshold:
@@ -353,6 +360,8 @@ def write_coco_annotations(
 	ratio_threshold=2.0,   # for counting the number of bboxes with width/height > ratio_threshold
 	px_threshold=50,
 	px_threshold_perc=0.01,
+	encoding='polygon',
+	upscale_masks=True,
 	debug=False,
 	debug_instance_segmentation_masks=False,
 ):
@@ -399,6 +408,7 @@ def write_coco_annotations(
 					dataset_splits=dataset_splits, splits_coco=splits_coco, image_id_counters=image_id_counters,
 					annotation_id_counters=annotation_id_counters, stats_by_subcat=stats_by_subcat,
 					ratio_threshold=ratio_threshold, px_threshold=px_threshold, px_threshold_perc=px_threshold_perc,
+					encoding=encoding, upscale_masks=upscale_masks,
 					debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug), ["train", "val", "test"])
 
 	for res in results:
@@ -449,7 +459,9 @@ if __name__ == "__main__":
 		ratio_threshold=2.0,
 		px_threshold=50,
 		px_threshold_perc=0.01,
-		debug=False,
-		debug_instance_segmentation_masks=False,
+		encoding='polygon',
+		upscale_masks=True,
+		debug=False,					# set this to True for a reduced dataset (e.g. 100 images per split)
+		debug_instance_segmentation_masks=False,	# set this to True to show all the images, masks and polygons
 	)
 

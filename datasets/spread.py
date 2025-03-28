@@ -465,6 +465,13 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		mask_uint8 = tree_mask.astype(np.uint8)
 		# Find contours using OpenCV
 		contours,_ = cv2.findContours(mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+		#contours  = sorted(contours, key=cv2.contourArea, reverse=True)
+		approx = []
+		for contour in contours:
+			peri = cv2.arcLength(contour, True)
+			approx_contour = cv2.approxPolyDP(contour, epsilon=0.02*peri, closed=True)
+			#print(f'approx_contours: {approx_contours}')
+			approx.append(approx_contour)
 
 		'''
 		for cnt in contours:
@@ -472,7 +479,11 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 			cv2.imshow("mask contours (COCO)",		img_cont)
 			cv2.waitKey(0)
 		'''
-	
+
+		orig_img   = img_small.copy()
+		img_cont   = img_small.copy()
+		img_approx = img_small.copy()
+
 		# Display the extracted tree mask
 		cv2.imshow("image_winid",			img2)
 		cv2.imshow("segmentation",			seg_mask   * 255)
@@ -484,8 +495,10 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		cv2.imshow('seg mask & iseg mask',		masked_iseg)
 		#cv2.imshow("masked image",			img2 & np.dstack((tree_mask*255, tree_mask*255, tree_mask*255)))
 		cv2.imshow("masked image",			masked_img)
-		img_cont   = cv2.drawContours(img2, contours, -1, color=(0,255,0), thickness=3)
+		img_cont   = cv2.drawContours(img_cont, contours, -1, color=(0,255,0),   thickness=1)
+		img_approx = cv2.drawContours(img_approx, approx, -1, color=(0,255,255), thickness=1)
 		cv2.imshow("mask contours (COCO)",		img_cont)
+		cv2.imshow("mask contours (APPROX)",		img_approx)
 		cv2.setWindowTitle("get_all_trees_winid",	f"get_all_trees[{idx}] of {len(all_the_trees)}")
 		cv2.setWindowTitle("image_winid",		f"{Path(image_fn).parent.parent.name}/{Path(image_fn).name}")
 		cv2.moveWindow("image_winid",			   0, -30)
@@ -498,6 +511,7 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		cv2.moveWindow("largest blob",			 980, 360)
 		cv2.moveWindow("seg mask & iseg mask",		 980, 680)
 		cv2.moveWindow("mask contours (COCO)",		1470, -30)
+		cv2.moveWindow("mask contours (APPROX)",	1470, 360)
 		cv2.waitKey(0)
 		#cv2.destroyAllWindows()
 
