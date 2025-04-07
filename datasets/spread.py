@@ -178,8 +178,8 @@ def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, tr
 		tree_trunk	= seg_mask & tree_mask
 		# count the pixels in the current single tree mask
 		nonzero		= np.count_nonzero(tree_mask)
+		rgb_tree_mask	= cv2.bitwise_and(iseg_mask, iseg_mask, mask=tree_mask)
 		if debug_save_all_masks:
-			rgb_tree_mask	= cv2.bitwise_and(iseg_mask, iseg_mask, mask=tree_mask)
 			#rgb_tree_mask	= cv2.circle(rgb_tree_mask, (int(x), int(y)), radius, color, thickness)
 			cv2.imwrite(f'/tmp/instance-seg-mask-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', rgb_tree_mask)
 			cv2.imwrite(f'/tmp/tree-trunk-{nonzero}px-{color[0]:02X}{color[1]:02X}{color[2]:02X}.png', tree_trunk)
