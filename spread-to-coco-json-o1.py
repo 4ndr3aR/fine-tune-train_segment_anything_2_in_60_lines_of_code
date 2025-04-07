@@ -157,7 +157,7 @@ def init_subcat_stats(stats_dict, subcat):
 
 def parallelize_train_valid_test_processing(split_name, dataset_splits,
 						splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-						ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
+						ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True, approx_poly=True,
 						debug_instance_segmentation_masks=False, debug=False):
 	# At least we can parallelize this for loop to spend just 70% of the time
 	# on it instead of 100% (because of the 70/20/10 split)
@@ -170,7 +170,7 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 	for entry_idx, entry in enumerate(entries):
 		process_entry(entry_idx, entry, split_name,
 				splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-				ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
+				ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True, approx_poly=True,
 				debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug)
 		if debug and entry_idx % 100 == 0 and entry_idx > 0:
 			break
@@ -181,7 +181,7 @@ def parallelize_train_valid_test_processing(split_name, dataset_splits,
 
 def process_entry(entry_idx, entry, split_name,
 			splits_coco, image_id_counters, annotation_id_counters, stats_by_subcat,
-			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True,
+			ratio_threshold, px_threshold, px_threshold_perc, encoding='polygon', upscale_masks=True, approx_poly=True,
 			debug_instance_segmentation_masks=False, debug=False):
 	img_fn  = entry["image_fn"]
 	seg_fn  = entry["segmentation_fn"]
@@ -271,6 +271,13 @@ def process_entry(entry_idx, entry, split_name,
 			mask_uint8 = tree_mask.astype(np.uint8)
 			# Find contours using OpenCV
 			contours, _ = cv2.findContours(mask_uint8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+			if approx_poly:
+				approx = []
+				for contour in contours:
+					approx_contour = cv2.approxPolyDP(contour, epsilon=1.0, closed=True)
+					approx.append(approx_contour)
+				contours = approx
 			
 			segmentation = []
 			poly_size = 0
@@ -362,6 +369,7 @@ def write_coco_annotations(
 	px_threshold_perc=0.01,
 	encoding='polygon',
 	upscale_masks=True,
+	approx_poly=True,
 	debug=False,
 	debug_instance_segmentation_masks=False,
 ):
@@ -408,7 +416,7 @@ def write_coco_annotations(
 					dataset_splits=dataset_splits, splits_coco=splits_coco, image_id_counters=image_id_counters,
 					annotation_id_counters=annotation_id_counters, stats_by_subcat=stats_by_subcat,
 					ratio_threshold=ratio_threshold, px_threshold=px_threshold, px_threshold_perc=px_threshold_perc,
-					encoding=encoding, upscale_masks=upscale_masks,
+					encoding=encoding, upscale_masks=upscale_masks, approx_poly=approx_poly,
 					debug_instance_segmentation_masks=debug_instance_segmentation_masks, debug=debug), ["train", "val", "test"])
 
 	for res in results:
@@ -447,7 +455,8 @@ if __name__ == "__main__":
 	# but we assume you have already done that somewhere else.
 
 	dbgprint(main, LogLevel.INFO, "Loading Spread dataset...")
-	data_dir = Path("/mnt/raid1/dataset/spread/spread")
+	#data_dir = Path("/mnt/raid1/dataset/spread/spread")
+	data_dir = Path("/mnt/data/dataset/spread/spread")
 	dataset  = SpreadDataset(data_dir, split="all", preload=False)
 	train, valid, test = dataset.train_data, dataset.val_data, dataset.test_data
 	dbgprint(main, LogLevel.INFO, f"Loaded {len(train)}, {len(valid)}, {len(test)} images. Total: {len(train) +  len(valid) + len(test)} images.")
@@ -461,6 +470,7 @@ if __name__ == "__main__":
 		px_threshold_perc=0.01,
 		encoding='polygon',
 		upscale_masks=True,
+		approx_poly=True,
 		debug=False,					# set this to True for a reduced dataset (e.g. 100 images per split)
 		debug_instance_segmentation_masks=False,	# set this to True to show all the images, masks and polygons
 	)

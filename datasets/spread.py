@@ -137,7 +137,7 @@ def get_bbox(mask):
 	bbox = (x, y, x + w, y + h)
 	return bbox
 
-def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, trunk_to_leaves_ratio=0.05, debug_save_all_masks=True):
+def get_all_trees(seg_mask, iseg_mask, px_threshold=-1, px_threshold_perc=-1, trunk_to_leaves_ratio=0.05, debug_save_all_masks=False):
 	"""
 	Extracts all tree instance masks, their center points, and bounding boxes.
 
@@ -469,7 +469,8 @@ def show_instances(image_fn, img, small_mask, seg_mask, all_the_trees):
 		approx = []
 		for contour in contours:
 			peri = cv2.arcLength(contour, True)
-			approx_contour = cv2.approxPolyDP(contour, epsilon=0.02*peri, closed=True)
+			#approx_contour = cv2.approxPolyDP(contour, epsilon=0.02*peri, closed=True)
+			approx_contour = cv2.approxPolyDP(contour, epsilon=1.0, closed=True)
 			#print(f'approx_contours: {approx_contours}')
 			approx.append(approx_contour)
 
